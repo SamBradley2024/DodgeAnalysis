@@ -123,7 +123,7 @@ def enhance_dataframe(df):
 
 @st.cache_resource
 def train_advanced_models(_df):
-    """Trains ML models; now more robust against small datasets."""
+    """Trains ML models; now correctly generates Player_Role."""
     df = _df.copy()
     models = {}
     
@@ -138,8 +138,12 @@ def train_advanced_models(_df):
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(df_role_features)
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
+    
+    # Assign cluster labels back to the original dataframe at the correct indices
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
     
+    # --- THIS ENTIRE BLOCK WAS MISSING OR INCOMPLETE BEFORE ---
+    # It takes the numeric clusters (0, 1, 2, 3) and gives them meaningful names.
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -161,8 +165,11 @@ def train_advanced_models(_df):
             counter += 1
             final_role_name = f"{base_role_name} ({counter})"
         role_names.append(final_role_name)
-    role_mapping = {i: role_names[i] for i in range(len(role_names))}
+    
+    role_mapping = {float(i): role_names[i] for i in range(len(role_names))}
     df['Player_Role'] = df['Role_Cluster'].map(role_mapping)
+    # --- END OF FIXED BLOCK ---
+    
     models['role_model'] = (kmeans, scaler, role_mapping, role_names)
     
     return df, models
@@ -180,212 +187,6 @@ def initialize_app(df, source_name):
             st.session_state.data_loaded = True
             st.session_state.source_name = source_name
 
-# --- Visualization Functions ---
-def create_player_dashboard(df, player_id):
-    player_data = df[df['Player_ID'] == player_id]
-    if player_data.empty:
-        st.error(f"No data found for player {player_id}")
-        return None
-
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Performance Radar', 'Game-by-Game Performance', 'Skill Distribution', 'Win Rate Analysis'),
-        specs=[[{"type": "polar"}, {"type": "scatter"}], [{"type": "bar"}, {"type": "pie"}]]
-    )
-    
-    radar_stats = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'K/D_Ratio']
-    avg_radar_stats = player_data[radar_stats].mean()
-    fig.add_trace(go.Scatterpolar(
-        r=avg_radar_stats.values,
-        theta=radar_stats,
-        fill='toself', name='Avg Skills', line_color='#FF6B6B'
-    ), row=1, col=1)
-
-    fig.add_trace(go.Scatter(
-        x=player_data['Game_ID'], y=player_data['Overall_Performance'],
-        mode='lines+markers', name='Performance Trend', line=dict(color='#4ECDC4', width=3)
-    ), row=1, col=2)
-
-    bar_stats_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks']
-    avg_bar_stats = player_data[bar_stats_cols].mean()
-    fig.add_trace(go.Bar(
-        x=bar_stats_cols, y=avg_bar_stats.values,
-        name='Average Stats', marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
-    ), row=2, col=1)
-
-    outcomes = player_data['Game_Outcome'].value_counts()
-    fig.add_trace(go.Pie(
-        labels=outcomes.index, values=outcomes.values,
-        name="Win Rate", marker_colors=['#4ECDC4', '#FF6B6B']
-    ), row=2, col=2)
-    fig.update_layout(height=800, showlegend=False, title_text=f"Comprehensive Dashboard: {player_id}")
-    return fig
-
-def create_team_analytics(df, team_id):
-    team_data = df[df['Team'] == team_id]
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Team Performance Distribution', 'Player Roles', 'Game Outcomes', 'Offensive vs. Defensive Rating'),
-        specs=[[{"type": "histogram"}, {"type": "bar"}], [{"type": "pie"}, {"type": "scatter"}]]
-    )
-    fig.add_trace(go.Histogram(x=team_data['Overall_Performance'], nbinsx=15, name='Performance Distribution', marker_color='#4ECDC4'), row=1, col=1)
-    
-    if 'Player_Role' in team_data.columns:
-        role_counts = team_data['Player_Role'].dropna().value_counts()
-        if not role_counts.empty:
-            fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
-    
-    outcomes = team_data['Game_Outcome'].value_counts()
-    fig.add_trace(go.Pie(labels=outcomes.index, values=outcomes.values, name="Outcomes"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=team_data['Offensive_Rating'], y=team_data['Defensive_Rating'], mode='markers', text=team_data['Player_ID'], name='Off vs Def Rating', marker=dict(size=10, color=team_data['Overall_Performance'], colorscale='Viridis', showscale=True)), row=2, col=2)
-    fig.update_layout(height=800, title_text=f"Team Analytics: {team_id}", showlegend=False)
-    return fig
-
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingRegressor
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.cluster import KMeans
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
-import numpy as np
-import warnings
-import gspread
-from google.oauth2.service_account import Credentials
-
-warnings.filterwarnings('ignore')
-
-
-# --- Styling and UI Helpers ---
-
-def load_css():
-    """Returns the custom CSS string."""
-    return """
-    <style>
-        .main-header {
-            background: linear-gradient(90deg, #FF6B6B, #4ECDC4); padding: 2rem; border-radius: 10px;
-            margin-bottom: 2rem; color: white; text-align: center;
-        }
-        .metric-container {
-            background: #f8f9fa; padding: 1rem; border-radius: 8px;
-            border-left: 4px solid #4ECDC4; margin: 0.5rem 0;
-        }
-        .insight-box {
-            background: #e8f4fd; padding: 1rem; border-radius: 8px;
-            border-left: 4px solid #1f77b4; margin: 1rem 0;
-        }
-        .warning-box {
-            background: #fff3cd; padding: 1rem; border-radius: 8px;
-            border-left: 4px solid #ffc107; margin: 1rem 0;
-        }
-    </style>
-    """
-
-def styled_metric(label, value, help_text=""):
-    """Creates a styled metric box using custom CSS."""
-    st.markdown('<div class="metric-container">', unsafe_allow_html=True)
-    st.metric(label, value, help=help_text)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- Data Loading and Processing Functions ---
-
-@st.cache_data(ttl=300)
-def load_from_google_sheet(worksheet_name):
-    """Loads a DataFrame from a specific Google Sheet worksheet."""
-    try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
-        client = gspread.authorize(creds)
-        sheet = client.open("Dodgeball App Data").worksheet(worksheet_name)
-        data = sheet.get_all_records()
-        if not data:
-            st.warning(f"Worksheet '{worksheet_name}' is empty or has no data.")
-            return None
-        return pd.DataFrame(data)
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"Worksheet '{worksheet_name}' not found in the Google Sheet.")
-        return None
-    except Exception as e:
-        st.error(f"Error reading from Google Sheets: {e}")
-        return None
-
-def enhance_dataframe(df):
-    """Takes a raw dataframe and adds all the calculated metrics and features."""
-    required_cols = ['Player_ID', 'Team', 'Game_ID', 'Game_Outcome', 'Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
-    if not all(col in df.columns for col in required_cols):
-        st.error("The provided data is missing one or more required columns. Please ensure your data has the following headers: " + ", ".join(required_cols))
-        return None
-
-    numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
-    df['Times_Eliminated'] = df['Hit_Out'] + df['Caught_Out']
-    df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
-    df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
-    df['Hit_Accuracy'] = np.where(df['Throws'] > 0, df['Hits'] / df['Throws'], 0)
-    df['Defensive_Efficiency'] = np.where((df['Catches'] + df['Dodges'] + df['Hit_Out']) > 0, (df['Catches'] + df['Dodges']) / (df['Catches'] + df['Dodges'] + df['Hit_Out']), 0)
-    df['Offensive_Rating'] = (df['Hits'] * 2 + df['Throws'] * 0.5) / (df['Throws'] + 1)
-    df['Defensive_Rating'] = (df['Dodges'] + df['Catches'] * 2) / 3
-    df['Overall_Performance'] = (df['Offensive_Rating'] * 0.35 + df['Defensive_Rating'] * 0.35 + df['K/D_Ratio'] * 0.15 + df['Net_Impact'] * 0.05 + df['Hit_Accuracy'] * 0.05 + df['Defensive_Efficiency'] * 0.05)
-    df['Game_Impact'] = np.where(df['Game_Outcome'] == 'Win', df['Overall_Performance'] * 1.2, df['Overall_Performance'] * 0.8)
-
-    player_stats = df.groupby('Player_ID').agg(
-        Avg_Performance=('Overall_Performance', 'mean'),
-        Performance_Consistency=('Overall_Performance', 'std'),
-        Avg_Hit_Accuracy=('Hit_Accuracy', 'mean'),
-        Avg_KD_Ratio=('K/D_Ratio', 'mean'),
-        Avg_Net_Impact=('Net_Impact', 'mean'),
-        Avg_Throws=('Throws', 'mean'),
-        Avg_Dodges=('Dodges', 'mean'),
-        Avg_Blocks=('Blocks', 'mean'),
-        Total_Hit_Out=('Hit_Out', 'sum'),
-        Total_Caught_Out=('Caught_Out', 'sum'),
-        Win_Rate=('Game_Outcome', lambda x: (x == 'Win').mean())
-    ).round(3)
-
-    player_stats['Consistency_Score'] = 1 / (player_stats['Performance_Consistency'] + 0.01)
-    df = df.merge(player_stats, on='Player_ID', how='left')
-    return df
-
-@st.cache_resource
-def train_advanced_models(_df):
-    """Trains ML models."""
-    df = _df.copy()
-    models = {}
-    
-    role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
-    df_role_features = df[role_features].dropna()
-
-    if df_role_features.empty or len(df_role_features) < 4:
-        st.warning("Not enough data to create player roles for the selected data source.")
-        df['Player_Role'] = 'N/A'
-        return df, models
-
-    scaler = StandardScaler()
-    scaled_features = scaler.fit_transform(df_role_features)
-    kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
-    df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
-    
-    # ... (rest of function is unchanged)
-    
-    return df, models
-
-def initialize_app(df, source_name):
-    """
-    Takes a raw dataframe, enhances it, trains models, and stores everything in session state.
-    """
-    with st.spinner(f"Processing data from '{source_name}' and training models..."):
-        df_enhanced = enhance_dataframe(df.copy())
-        if df_enhanced is not None:
-            df_trained, models = train_advanced_models(df_enhanced)
-            st.session_state.df_enhanced = df_trained
-            st.session_state.models = models
-            st.session_state.data_loaded = True
-            st.session_state.source_name = source_name
 
 # --- Visualization Functions ---
 def create_league_overview(df):
