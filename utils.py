@@ -11,6 +11,8 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import warnings
+# New import for the Google Sheets connection
+from streamlit_gspread import GSpreadConnection
 
 warnings.filterwarnings('ignore')
 
@@ -61,16 +63,18 @@ def styled_metric(label, value, help_text=""):
 
 
 # --- Data Loading and Feature Engineering ---
-@st.cache_data
-def load_and_enhance_data(filepath):
-    """Enhanced data loading with comprehensive feature engineering."""
-    if not os.path.exists(filepath):
-        st.error(f"Error: The file '{filepath}' was not found.")
-        st.info("Please make sure `dodgeball_data2.csv` is in the same directory as Home.py.")
-        return None
-
-    df = pd.read_csv(filepath)
-
+@st.cache_data(ttl=600) # Cache for 10 minutes (600 seconds)
+def load_and_enhance_data():
+    """Enhanced data loading from Google Sheets with feature engineering."""
+    
+    # Create a connection to Google Sheets using the secrets
+    conn = st.connection("gspread", type=GSpreadConnection)
+    
+    # Read the data from the default worksheet.
+    # Ensure your Google Sheet is shared with the service account email.
+    df = conn.read(worksheet="Sheet1", ttl=0) # ttl=0 forces re-read from connection if cache is stale
+    
+    # --- The rest of your feature engineering is UNCHANGED ---
     df['Times_Eliminated'] = df['Hit_Out'] + df['Caught_Out']
     df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
     df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
@@ -91,7 +95,6 @@ def load_and_enhance_data(filepath):
                                  df['Overall_Performance'] * 1.2,
                                  df['Overall_Performance'] * 0.8)
 
-    # Consistency metrics now include all raw stats for leaderboards
     player_stats = df.groupby('Player_ID').agg(
         Avg_Performance=('Overall_Performance', 'mean'),
         Performance_Consistency=('Overall_Performance', 'std'),

@@ -19,7 +19,7 @@ def initialize_app():
     This runs only once at the start of the session.
     """
     with st.spinner("Analyzing data and training AI models... This may take a moment."):
-        df = utils.load_and_enhance_data('dodgeball_data2.csv')
+        df = utils.load_and_enhance_data()
         if df is not None:
             # Use a copy to avoid caching issues with mutation
             df_enhanced, models = utils.train_advanced_models(df.copy())
