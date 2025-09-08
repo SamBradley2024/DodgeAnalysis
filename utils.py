@@ -60,19 +60,25 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Centralized Sidebar and Data Initialization ---
+# --- Centralized Sidebar and State Management ---
+
+def handle_sheet_change():
+    """Callback function to set a flag when the sheet changes."""
+    # This check ensures we only flag a reload when the selection actually changes
+    if 'loaded_sheet' in st.session_state and st.session_state.loaded_sheet != st.session_state.selected_sheet:
+        st.session_state.data_needs_reload = True
 
 def add_sidebar():
     """Adds a sidebar with a worksheet selector to the app."""
     st.sidebar.title("Data Source")
     sheet_names = get_worksheet_names()
     
-    selected_sheet = st.sidebar.selectbox(
+    st.sidebar.selectbox(
         "Select a Worksheet (e.g., Season)",
         sheet_names,
-        key='selected_sheet' 
+        key='selected_sheet',
+        on_change=handle_sheet_change # Use the callback here
     )
-    return selected_sheet
 
 def initialize_app(worksheet_name):
     """
@@ -88,15 +94,16 @@ def initialize_app(worksheet_name):
                 del st.session_state['models']
                 
             df_enhanced, models = train_advanced_models(df.copy())
-            st.session_state['df_enhanced'] = df_enhanced
-            st.session_state['models'] = models
-            st.session_state['data_loaded'] = True
-            st.session_state['loaded_sheet'] = worksheet_name # Track which sheet is loaded
+            st.session_state.df_enhanced = df_enhanced
+            st.session_state.models = models
+            st.session_state.data_loaded = True
+            st.session_state.loaded_sheet = worksheet_name
+            st.session_state.data_needs_reload = False # Reset the flag after loading
 
 # --- Google Sheets Connection Functions ---
 @st.cache_data(ttl=300) # Cache for 5 minutes
 def get_worksheet_names():
-    """Gets a list of all worksheet (tab) names from the Google Sheet."""
+    """Gets a list of all worksheet names from the Google Sheet."""
     try:
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -114,20 +121,20 @@ def get_worksheet_names():
 
 @st.cache_data(ttl=300) # Cache for 5 minutes
 def load_and_enhance_data(worksheet_name):
-    """Loads data from a specific Google Sheet worksheet and performs feature engineering."""
+    """Loads and processes data from a specific Google Sheet worksheet."""
     try:
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive.readonly"
-        ]
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"], scopes=scopes
-        )
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
         client = gspread.authorize(creds)
         sheet = client.open("Dodgeball App Data").worksheet(worksheet_name)
         data = sheet.get_all_records()
+        if not data:
+            st.warning(f"Worksheet '{worksheet_name}' is empty or has no data.")
+            return None
         df = pd.DataFrame(data)
-
+    except gspread.exceptions.WorksheetNotFound:
+        st.error(f"Worksheet '{worksheet_name}' not found in the Google Sheet.")
+        return None
     except Exception as e:
         st.error(f"Error reading from worksheet '{worksheet_name}': {e}")
         return None
@@ -141,21 +148,11 @@ def load_and_enhance_data(worksheet_name):
     df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
     df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
     df['Hit_Accuracy'] = np.where(df['Throws'] > 0, df['Hits'] / df['Throws'], 0)
-    df['Defensive_Efficiency'] = np.where((df['Catches'] + df['Dodges'] + df['Hit_Out']) > 0,
-                                          (df['Catches'] + df['Dodges']) / (df['Catches'] + df['Dodges'] + df['Hit_Out']), 0)
+    df['Defensive_Efficiency'] = np.where((df['Catches'] + df['Dodges'] + df['Hit_Out']) > 0, (df['Catches'] + df['Dodges']) / (df['Catches'] + df['Dodges'] + df['Hit_Out']), 0)
     df['Offensive_Rating'] = (df['Hits'] * 2 + df['Throws'] * 0.5) / (df['Throws'] + 1)
     df['Defensive_Rating'] = (df['Dodges'] + df['Catches'] * 2) / 3
-    df['Overall_Performance'] = (
-        df['Offensive_Rating'] * 0.35 +
-        df['Defensive_Rating'] * 0.35 +
-        df['K/D_Ratio'] * 0.15 +
-        df['Net_Impact'] * 0.05 +
-        df['Hit_Accuracy'] * 0.05 +
-        df['Defensive_Efficiency'] * 0.05
-    )
-    df['Game_Impact'] = np.where(df['Game_Outcome'] == 'Win',
-                                 df['Overall_Performance'] * 1.2,
-                                 df['Overall_Performance'] * 0.8)
+    df['Overall_Performance'] = (df['Offensive_Rating'] * 0.35 + df['Defensive_Rating'] * 0.35 + df['K/D_Ratio'] * 0.15 + df['Net_Impact'] * 0.05 + df['Hit_Accuracy'] * 0.05 + df['Defensive_Efficiency'] * 0.05)
+    df['Game_Impact'] = np.where(df['Game_Outcome'] == 'Win', df['Overall_Performance'] * 1.2, df['Overall_Performance'] * 0.8)
 
     player_stats = df.groupby('Player_ID').agg(
         Avg_Performance=('Overall_Performance', 'mean'),
@@ -176,23 +173,21 @@ def load_and_enhance_data(worksheet_name):
 
     return df
 
-
 # --- Advanced ML Models ---
 @st.cache_resource
 def train_advanced_models(_df):
-    """
-    Train multiple ML models for different predictions.
-    Works on a copy of the dataframe to avoid side effects.
-    """
+    """Trains ML models; now more robust against small datasets."""
     df = _df.copy()
     models = {}
-
+    
     # Player Role Classification
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
     if df_role_features.empty or len(df_role_features) < 4:
         st.warning("Not enough data to create player roles for the selected sheet.")
+        # Add an empty Player_Role column to prevent key errors on other pages
+        df['Player_Role'] = 'N/A'
         return df, models
 
     scaler = StandardScaler()

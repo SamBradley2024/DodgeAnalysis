@@ -1,24 +1,22 @@
 import streamlit as st
-import utils # Make sure utils is imported
+import utils 
 
 # --- State Management and Sidebar ---
-# This block MUST be at the top of every page
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-selected_sheet = utils.add_sidebar()
+utils.add_sidebar() 
 
-# Check if the selected sheet has changed or if data is not loaded
-if 'data_loaded' not in st.session_state or st.session_state.get('loaded_sheet') != selected_sheet:
-    # If the sheet is changed on a different page, this will trigger the reload
-    utils.initialize_app(selected_sheet)
+# Check if data needs to be loaded or reloaded
+if st.session_state.get('data_needs_reload', False) or 'data_loaded' not in st.session_state:
+    utils.initialize_app(st.session_state.selected_sheet)
 
-# Final check for data loading errors before stopping the script
-if 'df_enhanced' not in st.session_state or st.session_state.df_enhanced is None:
-    st.warning("Data could not be loaded. Please check the sheet name and data format.")
+# Final check for data loading before page content
+if not st.session_state.get('data_loaded', False):
+    st.warning("Please select a valid worksheet from the sidebar to load the data.")
     st.stop()
 
 # Get the dataframe and models from session state
-df = st.session_state['df_enhanced']
-models = st.session_state['models']
+df = st.session_state.df_enhanced
+models = st.session_state.models
 st.header("Team Analysis")
 
 team_list = sorted(df['Team'].unique())
