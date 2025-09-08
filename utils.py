@@ -425,7 +425,7 @@ def create_league_overview(df):
         showlegend=False
     ), row=2, col=2)
     
-    # UPDATED: The main title_text is removed, and axis titles are added
+    # UPDATED: The main 'title_text' is removed from here
     fig.update_layout(
         height=800, 
         legend=dict(
