@@ -53,6 +53,17 @@ if selected_player:
     
     st.markdown("---")
 
+    st.subheader("Stamina Analysis")
+    stamina_fig = utils.create_stamina_chart(df, selected_player)
+    if stamina_fig:
+        stamina_trend = df[df['Player_ID'] == selected_player]['Stamina_Trend'].iloc[0]
+        st.metric("Stamina Trend Score", f"{stamina_trend:.2f}", help="A positive score means the player's performance tends to improve in later games of a match. A negative score means it tends to drop.")
+        st.plotly_chart(stamina_fig, use_container_width=True)
+    else:
+        st.info("Not enough data across multiple matches to analyze this player's stamina.")
+    
+    st.markdown("---")
+
     # --- Elimination Profile Section ---
     st.subheader("Elimination Profile")
     col1, col2 = st.columns([1, 2])
