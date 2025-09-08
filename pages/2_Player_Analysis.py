@@ -1,6 +1,8 @@
 import streamlit as st
-import utils
+import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
+import utils
 
 # --- Page Configuration and State Check ---
 st.set_page_config(page_title="Player Analysis", page_icon="👤", layout="wide")
@@ -29,14 +31,15 @@ if not player_list:
 selected_player = st.selectbox("Select Player", player_list)
 
 if selected_player:
-    # Create a summary dataframe with one row per player to easily access aggregated stats
-    player_summary = df.groupby('Player_ID').first()
-    player_summary_data = player_summary.loc[selected_player]
+    # --- Defines the player's data once to be used by all sections below ---
+    player_data = df[df['Player_ID'] == selected_player]
+    player_summary_data = player_data.iloc[0]
+    player_career_avg = player_summary_data['Avg_Performance']
 
     # --- Key Metrics ---
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        utils.styled_metric("Player Role", player_summary_data['Player_Role'])
+        utils.styled_metric("Player Role", player_summary_data.get('Player_Role', 'N/A'))
     with col2:
         utils.styled_metric("Win Rate", f"{player_summary_data['Win_Rate']:.1%}")
     with col3:
@@ -44,21 +47,52 @@ if selected_player:
                             help_text="Ratio of opponents eliminated to times this player was eliminated.")
     with col4:
         utils.styled_metric("Avg Net Impact", f"{player_summary_data['Avg_Net_Impact']:.2f}",
-                            help_text="(Hits + Catches) - Times Eliminated. A measure of total impact on player count.")
+                            help_text="(Hits + Catches) - Times Eliminated.")
 
     # --- Main Visual ---
     fig = utils.create_player_dashboard(df, selected_player)
     if fig:
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     
     st.markdown("---")
 
+    # --- Improvement Trend Section ---
+    st.subheader("Performance Over Time (Improvement Trend)")
+    improvement_fig = utils.create_improvement_chart(df, selected_player)
+    if improvement_fig:
+        st.plotly_chart(improvement_fig, width='stretch')
+    else:
+        st.info("Not enough data (requires participation in at least 2 matches) to show an improvement trend.")
+
+    st.markdown("---")
+    
+    # --- Performance in Specific Match ---
+    st.subheader("Performance in a Specific Match")
+    player_matches = sorted(player_data['Match_ID'].dropna().unique())
+    if player_matches:
+        selected_match = st.selectbox("Select a match to analyze performance:", player_matches)
+        
+        if selected_match:
+            match_perf_df = player_data[player_data['Match_ID'] == selected_match]
+            avg_perf_in_match = match_perf_df['Overall_Performance'].mean()
+            
+            st.metric(
+                label=f"Avg Performance in {selected_match}",
+                value=f"{avg_perf_in_match:.2f}",
+                delta=f"{avg_perf_in_match - player_career_avg:.2f} vs. Career Average"
+            )
+    else:
+        st.info("This player has not played in any matches.")
+
+    st.markdown("---")
+
+    # --- Stamina Analysis Section ---
     st.subheader("Stamina Analysis")
     stamina_fig = utils.create_stamina_chart(df, selected_player)
     if stamina_fig:
-        stamina_trend = df[df['Player_ID'] == selected_player]['Stamina_Trend'].iloc[0]
+        stamina_trend = player_data['Stamina_Trend'].iloc[0]
         st.metric("Stamina Trend Score", f"{stamina_trend:.2f}", help="A positive score means the player's performance tends to improve in later games of a match. A negative score means it tends to drop.")
-        st.plotly_chart(stamina_fig, use_container_width=True)
+        st.plotly_chart(stamina_fig, width='stretch')
     else:
         st.info("Not enough data across multiple matches to analyze this player's stamina.")
     
@@ -79,13 +113,11 @@ if selected_player:
             elimination_values = [hit_out_total, caught_out_total]
             
             fig_pie = go.Figure(data=[go.Pie(
-                labels=elimination_labels,
-                values=elimination_values,
-                hole=.3,
-                marker_colors=['#FF6B6B', '#FECA57']
+                labels=elimination_labels, values=elimination_values,
+                hole=.3, marker_colors=['#FF6B6B', '#FECA57']
             )])
             fig_pie.update_layout(title_text="Breakdown of Eliminations", showlegend=False)
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width='stretch')
     
     with col2:
         st.write(f"Analyzing how **{selected_player}** gets eliminated provides insight into their defensive vulnerabilities.")
@@ -93,31 +125,13 @@ if selected_player:
         st.metric("Total Times Eliminated by a Catch", f"{caught_out_total:.0f}")
 
         if caught_out_total > (hit_out_total / 3) and caught_out_total > 2:
-            st.warning("**Insight:** This player's throws get caught relatively often. Focus on shot selection and avoiding risky throws to strong catchers.")
+            st.warning("🎯 **Coaching Insight:** This player's throws get caught relatively often. Focus on shot selection and avoiding risky throws to strong catchers.")
         elif hit_out_total > (caught_out_total * 2) and hit_out_total > 2:
-            st.warning("**Insight:** This player is eliminated by being hit directly much more often than being caught. Focus on dodging drills")
+            st.warning("🏃 **Coaching Insight:** This player is eliminated by being hit directly much more often than being caught. Focus on dodging drills and improving spatial awareness.")
         else:
-            st.info("✅ **Insight:** This player has a balanced elimination profile, showing no specific defensive weakness.")
+            st.info("✅ **Insight:** This player has a balanced elimination profile.")
 
     st.markdown("---")
-
-    st.subheader("Performance in a Specific Match")
-    player_matches = sorted(player_data['Match_ID'].unique())
-    if player_matches:
-        selected_match = st.selectbox("Select a match to analyze performance:", player_matches)
-        
-        if selected_match:
-            match_perf_df = player_data[player_data['Match_ID'] == selected_match]
-            avg_perf_in_match = match_perf_df['Overall_Performance'].mean()
-            
-            st.metric(
-                label=f"Avg Performance in {selected_match}",
-                value=f"{avg_perf_in_match:.2f}",
-                delta=f"{avg_perf_in_match - player_career_avg:.2f} vs. Career Average"
-            )
-    else:
-        st.info("This player has not played in any matches.")
-    
     
     # --- Player Comparison ---
     st.subheader("Player Comparison")
@@ -132,18 +146,8 @@ if selected_player:
             with col1:
                 fig1 = utils.create_player_dashboard(df, selected_player)
                 if fig1:
-                    st.plotly_chart(fig1, use_container_width=True, key="compare_chart_1")
+                    st.plotly_chart(fig1, width='stretch', key="compare_chart_1")
             with col2:
                 fig2 = utils.create_player_dashboard(df, comparison_player)
                 if fig2:
-                    st.plotly_chart(fig2, use_container_width=True, key="compare_chart_2")
-
-
-    st.subheader("Performance Over Time (Improvement Trend)")
-    improvement_fig = utils.create_improvement_chart(df, selected_player)
-    if improvement_fig:
-        st.plotly_chart(improvement_fig, use_container_width=True)
-    else:
-        st.info("Not enough data (requires participation in at least 2 matches) to show an improvement trend.")
-
-   
+                    st.plotly_chart(fig2, width='stretch', key="compare_chart_2")
