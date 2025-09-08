@@ -396,9 +396,11 @@ def create_league_overview(df):
         specs=[[{"type": "bar"}, {"type": "polar"}], [{"type": "pie"}, {"type": "scatter"}]]
     )
     
+    # Top Performers Bar Chart
     top_players = df.groupby('Player_ID')['Overall_Performance'].mean().nlargest(10)
     fig.add_trace(go.Bar(x=top_players.index, y=top_players.values, name='Top Performers', marker_color='#FF6B6B', showlegend=False), row=1, col=1)
     
+    # Team Skill Radar Chart
     teams = df['Team'].unique()[:5]
     colors = px.colors.qualitative.Plotly
     stats_radar = ['Hits', 'Throws', 'Blocks', 'Dodges', 'Catches']
@@ -406,11 +408,13 @@ def create_league_overview(df):
         team_stats = df[df['Team'] == team][stats_radar].mean()
         fig.add_trace(go.Scatterpolar(r=team_stats.values, theta=stats_radar, fill='toself', name=team, line_color=colors[i]), row=1, col=2)
     
+    # League Role Pie Chart
     if 'Player_Role' in df.columns:
         role_counts = df['Player_Role'].dropna().value_counts()
         if not role_counts.empty:
             fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles", showlegend=False), row=2, col=1)
     
+    # Performance vs Consistency Scatter Plot
     player_summary = df.groupby('Player_ID').agg(Overall_Performance=('Overall_Performance', 'mean'), Win_Rate=('Win_Rate', 'first'), Consistency_Score=('Consistency_Score', 'first')).reset_index().dropna()
     fig.add_trace(go.Scatter(
         x=player_summary['Overall_Performance'], 
@@ -421,12 +425,9 @@ def create_league_overview(df):
         showlegend=False
     ), row=2, col=2)
     
+    # UPDATED: The main title_text is removed, and axis titles are added
     fig.update_layout(
         height=800, 
-        title_text="League Overview Dashboard",
-        # --- UPDATED: ADD AXIS LABELS AND MOVE LEGEND ---
-        xaxis_title="Average Performance (Skill) →",
-        yaxis_title="Consistency (Reliability) →",
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -436,7 +437,6 @@ def create_league_overview(df):
         ),
         polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()]))
     )
-    # This specifically targets the axes of the scatter plot (xaxis4, yaxis4)
     fig.update_xaxes(title_text="Average Performance (Skill) →", row=2, col=2)
     fig.update_yaxes(title_text="Consistency (Reliability) →", row=2, col=2)
     
