@@ -413,20 +413,57 @@ def generate_team_coaching_report(df, team_id):
             report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player.")
     return report
 
-def generate_insights(df):
+def generate_insights(df, models):
+    """Generate more advanced, AI-powered insights from the data."""
     insights = []
+
+    # Insight 1: Top Performer (still useful)
     top_performer = df.groupby('Player_ID')['Overall_Performance'].mean().idxmax()
     top_score = df.groupby('Player_ID')['Overall_Performance'].mean().max()
-    insights.append(f"🏆 **Top Performer**: {top_performer} with an average performance score of {top_score:.2f}")
+    insights.append(f"🏆 **Top Performer**: **{top_performer}** leads the league with an average performance score of {top_score:.2f}.")
 
-    top_kd_player = df.groupby('Player_ID')['K/D_Ratio'].mean().idxmax()
-    top_kd = df.groupby('Player_ID')['K/D_Ratio'].mean().max()
-    insights.append(f"⚡ **Most Efficient Player**: {top_kd_player} is the most efficient eliminator with an incredible K/D Ratio of {top_kd:.2f}.")
+    # Insight 2: Find the most important skill for winning
+    corr_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Hit_Accuracy', 'K/D_Ratio', 'Overall_Performance']
+    existing_corr_cols = [col for col in corr_cols if col in df.columns]
+    if 'Overall_Performance' in existing_corr_cols:
+        performance_corr = df[existing_corr_cols].corr()['Overall_Performance'].abs().sort_values(ascending=False)
+        if len(performance_corr) > 1:
+            top_corr_skill = performance_corr.index[1]
+            insights.append(f"📈 **Key to Success**: In this dataset, **{top_corr_skill.replace('_', ' ')}** has the strongest correlation with winning performance, suggesting it's the most critical skill for success.")
 
-    best_team = df.groupby('Team')['Overall_Performance'].mean().idxmax()
-    insights.append(f"🥇 **Strongest Team**: {best_team} with the highest average performance.")
-    
-    if 'Player_Role' in df.columns and not df['Player_Role'].isnull().all():
-        best_role = df.groupby('Player_Role')['Overall_Performance'].mean().idxmax()
-        insights.append(f"✨ **Most Effective Role**: Players classified as **{best_role}** show the highest average performance across the league.")
+    # Insight 3: Find the biggest "overachiever" using the performance model
+    if 'performance_model' in models:
+        perf_model, perf_features = models['performance_model']
+        
+        # Ensure all features are present before predicting
+        if all(feat in df.columns for feat in perf_features):
+            df['Predicted_Performance'] = perf_model.predict(df[perf_features])
+            player_perf_comparison = df.groupby('Player_ID').agg(
+                Actual=('Overall_Performance', 'mean'),
+                Predicted=('Predicted_Performance', 'mean')
+            ).dropna()
+            
+            player_perf_comparison['Difference'] = player_perf_comparison['Actual'] - player_perf_comparison['Predicted']
+            
+            if not player_perf_comparison.empty:
+                overachiever = player_perf_comparison['Difference'].idxmax()
+                overachiever_diff = player_perf_comparison['Difference'].max()
+
+                if overachiever_diff > 0.1: # Only show if the difference is meaningful
+                    insights.append(f"🧠 **The Overachiever**: **{overachiever}** consistently performs **{overachiever_diff:.1%} higher** than their raw stats (hits, throws, etc.) would predict. This suggests high game intelligence or tactical awareness that isn't captured by basic stats alone.")
+
+    # Insight 4: Find a strategic gap in a successful team
+    if 'Player_Role' in df.columns and not df['Player_Role'].dropna().empty:
+        team_summary = df.groupby('Team').agg(Win_Rate=('Win_Rate', 'first'), Player_Roles=('Player_Role', lambda x: list(x.unique())))
+        successful_teams = team_summary[team_summary['Win_Rate'] >= 0.6].sort_values('Win_Rate', ascending=False)
+        
+        vulnerable_team = None
+        for team, row in successful_teams.iterrows():
+            if not any('Catcher' in str(role) for role in row['Player_Roles']):
+                vulnerable_team = team
+                break # Found the first one
+        
+        if vulnerable_team:
+            insights.append(f"🛡️ **Strategic Gap**: The team **{vulnerable_team}** is highly successful but appears to lack a dedicated Catcher-type player. This could be a vulnerability against teams with powerful, accurate throwers.")
+            
     return insights
