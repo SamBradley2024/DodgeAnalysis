@@ -33,15 +33,18 @@ with col1:
     st.subheader("🔗 Option 1: Use Live Google Sheet")
     st.write("Connect to the 'Dodgeball App Data' Google Sheet. Any edits you make to the sheet will be reflected in the app.")
     
-    # Get a list of available sheets to choose from
     sheet_names = utils.get_worksheet_names()
     selected_sheet = st.selectbox("Select a worksheet", sheet_names)
 
     if st.button("Load from Google Sheet"):
         raw_df = utils.load_from_google_sheet(selected_sheet)
         if raw_df is not None:
+            # --- ADD THESE TWO LINES TO CLEAR THE CACHE ---
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            
             utils.initialize_app(raw_df, f"Google Sheet: {selected_sheet}")
-            st.rerun() # Rerun the script to show the success message
+            st.rerun()
 
 # --- Option 2: CSV Upload ---
 with col2:
@@ -51,7 +54,11 @@ with col2:
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
 
     if uploaded_file is not None:
-        # No button needed, will process automatically upon upload
         raw_df = pd.read_csv(uploaded_file)
+        
+        # --- ADD THESE TWO LINES TO CLEAR THE CACHE ---
+        st.cache_data.clear()
+        st.cache_resource.clear()
+
         utils.initialize_app(raw_df, f"Uploaded File: {uploaded_file.name}")
-        st.rerun() # Rerun the script to show the success message
+        st.rerun()

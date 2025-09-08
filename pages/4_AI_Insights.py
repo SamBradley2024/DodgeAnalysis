@@ -4,17 +4,13 @@ import utils
 # --- State Management and Sidebar ---
 st.set_page_config(page_title="AI Insights", page_icon="🤖", layout="wide")
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-utils.add_sidebar() 
 
-# The definitive check: reload if data is missing.
-utils.main_data_loader()
-
-# Final check for data loading before page content
-if 'df_enhanced' not in st.session_state or st.session_state.df_enhanced is None:
-    st.warning("Data could not be loaded. Please select a valid worksheet from the sidebar.")
+# Check if data has been loaded from the Home page
+if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
+    st.warning("Please select and load a data source from the 🏠 Home page first.")
     st.stop()
 
-# Get the dataframe and models from session state
+# If data is loaded, get it from session state
 df = st.session_state.df_enhanced
 models = st.session_state.models
 
