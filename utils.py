@@ -47,8 +47,51 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Data Loading and Processing Functions ---
+# --- Centralized Sidebar and State Management ---
 
+def handle_sheet_change():
+    """
+    Callback function to clear all data from session state if the sheet selection changes.
+    This acts as a 'reset' button, forcing a clean reload on the next script run.
+    """
+    if 'loaded_sheet' in st.session_state and st.session_state.selected_sheet != st.session_state.get('loaded_sheet'):
+        keys_to_delete = ['df_enhanced', 'models', 'loaded_sheet', 'data_loaded']
+        for key in keys_to_delete:
+            if key in st.session_state:
+                del st.session_state[key]
+
+def add_sidebar():
+    """Adds a sidebar with a worksheet selector to the app."""
+    st.sidebar.title("Data Source")
+    sheet_names = get_worksheet_names()
+    
+    st.sidebar.selectbox(
+        "Select a Worksheet (e.g., Season)",
+        sheet_names,
+        key='selected_sheet',
+        on_change=handle_sheet_change
+    )
+
+def main_data_loader():
+    """
+    The master function that checks if data is loaded and, if not,
+    runs the full loading and processing pipeline.
+    """
+    if 'df_enhanced' not in st.session_state:
+        if 'selected_sheet' not in st.session_state:
+            st.session_state.selected_sheet = get_worksheet_names()[0]
+
+        worksheet_name = st.session_state.selected_sheet
+        with st.spinner(f"Loading data from '{worksheet_name}'..."):
+            df = load_and_enhance_data(worksheet_name)
+            if df is not None:
+                df_enhanced, models = train_advanced_models(df.copy())
+                st.session_state.df_enhanced = df_enhanced
+                st.session_state.models = models
+                st.session_state.loaded_sheet = worksheet_name
+                st.session_state.data_loaded = True
+
+# --- Google Sheets Connection Functions ---
 @st.cache_data(ttl=300)
 def get_worksheet_names():
     """Gets a list of all worksheet names from the Google Sheet."""
@@ -63,8 +106,8 @@ def get_worksheet_names():
         return ["Sheet1"]
 
 @st.cache_data(ttl=300)
-def load_from_google_sheet(worksheet_name):
-    """Loads a DataFrame from a specific Google Sheet worksheet."""
+def load_and_enhance_data(worksheet_name):
+    """Loads and processes data from a specific Google Sheet worksheet."""
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
@@ -74,21 +117,15 @@ def load_from_google_sheet(worksheet_name):
         if not data:
             st.warning(f"Worksheet '{worksheet_name}' is empty or has no data.")
             return None
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
     except gspread.exceptions.WorksheetNotFound:
         st.error(f"Worksheet '{worksheet_name}' not found in the Google Sheet.")
         return None
     except Exception as e:
-        st.error(f"Error reading from Google Sheets: {e}")
+        st.error(f"Error reading from worksheet '{worksheet_name}': {e}")
         return None
 
-def enhance_dataframe(df):
-    """Takes a raw dataframe and adds all the calculated metrics and features."""
-    required_cols = ['Player_ID', 'Team', 'Game_ID', 'Game_Outcome', 'Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
-    if not all(col in df.columns for col in required_cols):
-        st.error("The provided data is missing one or more required columns. Please ensure your data has the following headers: " + ", ".join(required_cols))
-        return None
-
+    # --- Feature engineering logic ---
     numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -119,8 +156,10 @@ def enhance_dataframe(df):
 
     player_stats['Consistency_Score'] = 1 / (player_stats['Performance_Consistency'] + 0.01)
     df = df.merge(player_stats, on='Player_ID', how='left')
+
     return df
 
+# --- Advanced ML Models ---
 @st.cache_resource
 def train_advanced_models(_df):
     """Trains ML models; now more robust against small datasets."""
@@ -131,7 +170,7 @@ def train_advanced_models(_df):
     df_role_features = df[role_features].dropna()
 
     if df_role_features.empty or len(df_role_features) < 4:
-        st.warning("Not enough data to create player roles for the selected data source.")
+        st.warning("Not enough data to create player roles for the selected sheet.")
         df['Player_Role'] = 'N/A'
         return df, models
 
@@ -144,10 +183,10 @@ def train_advanced_models(_df):
     league_average_stats = df_role_features.mean()
     role_names = []
     name_map = {
-        'Hits': 'Striker', 'Throws': 'Thrower', 'Dodges': 'Evader',
-        'Catches': 'Catcher', 'Hit_Accuracy': 'Accurate', 'Defensive_Efficiency': 'Efficient',
-        'Offensive_Rating': 'Offensive', 'Defensive_Rating': 'Defensive', 'K/D_Ratio': 'Clutch'
+        'Hits': 'Striker', 'Throws': 'Thrower', 'Dodges': 'Evader', 'Catches': 'Catcher', 'Hit_Accuracy': 'Accurate', 
+        'Defensive_Efficiency': 'Efficient', 'Offensive_Rating': 'Offensive', 'Defensive_Rating': 'Defensive', 'K/D_Ratio': 'Clutch'
     }
+
     for i in range(cluster_centers_unscaled.shape[0]):
         center_stats = pd.Series(cluster_centers_unscaled[i], index=role_features)
         specialization_scores = (center_stats - league_average_stats) / (league_average_stats + 1e-6)
@@ -161,95 +200,27 @@ def train_advanced_models(_df):
             counter += 1
             final_role_name = f"{base_role_name} ({counter})"
         role_names.append(final_role_name)
+
     role_mapping = {i: role_names[i] for i in range(len(role_names))}
     df['Player_Role'] = df['Role_Cluster'].map(role_mapping)
     models['role_model'] = (kmeans, scaler, role_mapping, role_names)
     
     return df, models
 
-def initialize_app(df, source_name):
-    """
-    Takes a raw dataframe, enhances it, trains models, and stores everything in session state.
-    """
-    with st.spinner(f"Processing data from '{source_name}' and training models..."):
-        df_enhanced = enhance_dataframe(df.copy())
-        if df_enhanced is not None:
-            df_trained, models = train_advanced_models(df_enhanced)
-            st.session_state.df_enhanced = df_trained
-            st.session_state.models = models
-            st.session_state.data_loaded = True
-            st.session_state.source_name = source_name
-
 # --- Visualization Functions ---
-def create_player_dashboard(df, player_id):
-    player_data = df[df['Player_ID'] == player_id]
-    if player_data.empty:
-        st.error(f"No data found for player {player_id}")
-        return None
-
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Performance Radar', 'Game-by-Game Performance', 'Skill Distribution', 'Win Rate Analysis'),
-        specs=[[{"type": "polar"}, {"type": "scatter"}], [{"type": "bar"}, {"type": "pie"}]]
-    )
-    
-    radar_stats = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'K/D_Ratio']
-    avg_radar_stats = player_data[radar_stats].mean()
-    fig.add_trace(go.Scatterpolar(
-        r=avg_radar_stats.values,
-        theta=radar_stats,
-        fill='toself', name='Avg Skills', line_color='#FF6B6B'
-    ), row=1, col=1)
-
-    fig.add_trace(go.Scatter(
-        x=player_data['Game_ID'], y=player_data['Overall_Performance'],
-        mode='lines+markers', name='Performance Trend', line=dict(color='#4ECDC4', width=3)
-    ), row=1, col=2)
-
-    bar_stats_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks']
-    avg_bar_stats = player_data[bar_stats_cols].mean()
-    fig.add_trace(go.Bar(
-        x=bar_stats_cols, y=avg_bar_stats.values,
-        name='Average Stats', marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
-    ), row=2, col=1)
-
-    outcomes = player_data['Game_Outcome'].value_counts()
-    fig.add_trace(go.Pie(
-        labels=outcomes.index, values=outcomes.values,
-        name="Win Rate", marker_colors=['#4ECDC4', '#FF6B6B']
-    ), row=2, col=2)
-    fig.update_layout(height=800, showlegend=False, title_text=f"Comprehensive Dashboard: {player_id}")
-    return fig
-
-def create_team_analytics(df, team_id):
-    team_data = df[df['Team'] == team_id]
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Team Performance Distribution', 'Player Roles', 'Game Outcomes', 'Offensive vs. Defensive Rating'),
-        specs=[[{"type": "histogram"}, {"type": "bar"}], [{"type": "pie"}, {"type": "scatter"}]]
-    )
-    fig.add_trace(go.Histogram(x=team_data['Overall_Performance'], nbinsx=15, name='Performance Distribution', marker_color='#4ECDC4'), row=1, col=1)
-    
-    if 'Player_Role' in team_data.columns:
-        role_counts = team_data['Player_Role'].dropna().value_counts()
-        if not role_counts.empty:
-            fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
-    
-    outcomes = team_data['Game_Outcome'].value_counts()
-    fig.add_trace(go.Pie(labels=outcomes.index, values=outcomes.values, name="Outcomes"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=team_data['Offensive_Rating'], y=team_data['Defensive_Rating'], mode='markers', text=team_data['Player_ID'], name='Off vs Def Rating', marker=dict(size=10, color=team_data['Overall_Performance'], colorscale='Viridis', showscale=True)), row=2, col=2)
-    fig.update_layout(height=800, title_text=f"Team Analytics: {team_id}", showlegend=False)
-    return fig
-
 def create_league_overview(df):
+    """Create comprehensive league overview."""
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=('Top Performers by Avg Score', 'Team Skill Comparison', 'League Role Distribution', 'Performance vs Consistency'),
         specs=[[{"type": "bar"}, {"type": "polar"}], [{"type": "pie"}, {"type": "scatter"}]]
     )
-    top_players = df.groupby('Player_ID')['Overall_Performance'].mean().nlargest(10)
-    fig.add_trace(go.Bar(x=top_players.index, y=top_players.values, name='Top Performers', marker_color='#FF6B6B'), row=1, col=1)
     
+    # Top Performers Bar Chart
+    top_players = df.groupby('Player_ID')['Overall_Performance'].mean().nlargest(10)
+    fig.add_trace(go.Bar(x=top_players.index, y=top_players.values, name='Top Performers', marker_color='#FF6B6B', showlegend=False), row=1, col=1) # UPDATED
+    
+    # Team Skill Radar Chart
     teams = df['Team'].unique()[:5]
     colors = px.colors.qualitative.Plotly
     stats_radar = ['Hits', 'Throws', 'Blocks', 'Dodges', 'Catches']
@@ -257,15 +228,38 @@ def create_league_overview(df):
         team_stats = df[df['Team'] == team][stats_radar].mean()
         fig.add_trace(go.Scatterpolar(r=team_stats.values, theta=stats_radar, fill='toself', name=team, line_color=colors[i]), row=1, col=2)
     
+    # League Role Pie Chart
     if 'Player_Role' in df.columns:
         role_counts = df['Player_Role'].dropna().value_counts()
         if not role_counts.empty:
-            fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles"), row=2, col=1)
+            fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles", showlegend=False), row=2, col=1) # UPDATED
     
+    # Performance vs Consistency Scatter Plot
     player_summary = df.groupby('Player_ID').agg(Overall_Performance=('Overall_Performance', 'mean'), Win_Rate=('Win_Rate', 'first'), Consistency_Score=('Consistency_Score', 'first')).reset_index().dropna()
-    fig.add_trace(go.Scatter(x=player_summary['Overall_Performance'], y=player_summary['Consistency_Score'], mode='markers', text=player_summary['Player_ID'], marker=dict(size=player_summary['Win_Rate'] * 20 + 5, color=player_summary['Win_Rate'], colorscale='Viridis', showscale=True, colorbar_title='Win Rate'), name='Performance vs Consistency'), row=2, col=2)
-    fig.update_layout(height=800, title_text="League Overview Dashboard", polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()])))
+    fig.add_trace(go.Scatter(
+        x=player_summary['Overall_Performance'], 
+        y=player_summary['Consistency_Score'], 
+        mode='markers', text=player_summary['Player_ID'], 
+        marker=dict(size=player_summary['Win_Rate'] * 20 + 5, color=player_summary['Win_Rate'], colorscale='Viridis', showscale=True, colorbar_title='Win Rate'), 
+        name='Performance vs Consistency',
+        showlegend=False # UPDATED
+    ), row=2, col=2)
+    
+    # UPDATED: Move legend to the top to avoid collision with color bar
+    fig.update_layout(
+        height=800, 
+        title_text="League Overview Dashboard",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()]))
+    )
     return fig
+
 
 def create_specialization_analysis(df):
     st.header("Player Specialization Analysis")
