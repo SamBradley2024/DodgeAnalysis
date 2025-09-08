@@ -32,7 +32,11 @@ if selected_match:
     
     if 'Match_Winner' in match_df.columns:
         match_winner = match_df['Match_Winner'].iloc[0]
-        game_scores = match_df[match_df['Game_Outcome'] == 'Win']['Team'].value_counts()
+        
+        # --- FIXED LINE ---
+        # First, find unique games won by each team, then count them.
+        game_scores = match_df[match_df['Game_Outcome'] == 'Win'][['Game_ID', 'Team']].drop_duplicates()['Team'].value_counts()
+        
         st.subheader(f"Match Result: {match_winner} Wins")
         if not game_scores.empty:
             cols = st.columns(len(game_scores))
@@ -95,7 +99,6 @@ if selected_match:
         match_player_summary = pd.merge(match_player_summary, career_avg_perf, on='Player_ID', how='left')
     
         # 4. Now, safely calculate the comparison column
-        # This line will no longer cause an error
         match_player_summary['Perf. vs. Avg.'] = match_player_summary['Avg_Match_Performance'] - match_player_summary['Career_Avg_Performance']
     
         match_player_summary = match_player_summary.sort_values('Avg_Match_Performance', ascending=False)
