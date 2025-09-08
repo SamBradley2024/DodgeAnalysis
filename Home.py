@@ -14,8 +14,7 @@ st.markdown(utils.load_css(), unsafe_allow_html=True)
 # --- State Check: If data is loaded, show a different message ---
 if 'data_loaded' in st.session_state and st.session_state.data_loaded:
     st.success(f"Data from **{st.session_state.source_name}** is already loaded.")
-    st.info("Navigate to any page on the left to start the analysis. To use a different data source, please refresh this page.")
-    st.stop()
+    st.info("Navigate to any page on the left to start the analysis. To use a different data source, please select another from this page.")
 
 # --- Welcome and Data Source Selection ---
 st.markdown("""

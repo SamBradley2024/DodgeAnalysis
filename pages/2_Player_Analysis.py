@@ -2,8 +2,7 @@ import streamlit as st
 import utils
 import plotly.graph_objects as go
 
-# --- State Management and Sidebar ---
-# This block MUST be at the top of every page script
+# --- Page Configuration and State Check ---
 st.set_page_config(page_title="Player Analysis", page_icon="👤", layout="wide")
 st.markdown(utils.load_css(), unsafe_allow_html=True)
 
@@ -18,12 +17,14 @@ models = st.session_state.models
 
 # --- Page Content ---
 st.header("Individual Player Analysis")
-st.write(f"Displaying data from worksheet: **{st.session_state.loaded_sheet}**")
+# CORRECTED LINE: Using 'source_name' instead of 'loaded_sheet'
+st.info(f"Analyzing data from: **{st.session_state.source_name}**")
+st.markdown("---")
 
 # --- Player Selection ---
 player_list = sorted(df['Player_ID'].unique())
 if not player_list:
-    st.warning("No players found in the selected worksheet.")
+    st.warning("No players found in the selected data source.")
     st.stop()
     
 selected_player = st.selectbox("Select Player", player_list)
@@ -84,9 +85,9 @@ if selected_player:
         if hit_out_total > caught_out_total * 1.5:
             st.warning("Insight: This player is more frequently eliminated by being hit directly. Coaching should focus on improving dodging ability and spatial awareness.")
         elif caught_out_total > hit_out_total * 1.5:
-            st.warning("Insight: This player is more frequently eliminated by having their throws caught. Coaching should focus on shot selection, throwing power, and avoiding risky throws to well-positioned catchers.")
+            st.warning("Insight: This player is more frequently eliminated by having their throws caught. Coaching should focus on shot selection and avoiding risky throws.")
         else:
-            st.info("Insight: This player has a balanced elimination profile, showing no specific defensive weakness.")
+            st.info("Insight: This player has a balanced elimination profile.")
 
     st.markdown("---")
     
