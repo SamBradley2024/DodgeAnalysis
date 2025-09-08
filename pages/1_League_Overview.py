@@ -2,7 +2,6 @@ import streamlit as st
 import utils
 
 # --- Page Configuration and State Check ---
-# This block MUST be at the top of every page script
 st.set_page_config(page_title="League Overview", page_icon="🏠", layout="wide")
 st.markdown(utils.load_css(), unsafe_allow_html=True)
 
@@ -18,7 +17,6 @@ models = st.session_state.models
 # --- Page Content ---
 st.header("League Overview")
 st.info(f"Analyzing data from: **{st.session_state.source_name}**")
-st.markdown("---")
 
 # --- Key Metrics ---
 col1, col2, col3, col4 = st.columns(4)
@@ -35,10 +33,23 @@ with col4:
 # --- Main Visual ---
 st.plotly_chart(utils.create_league_overview(df), use_container_width=True)
 
+# --- UPDATED: ADD THE EXPLANATION BOX ---
+st.info("""
+**How to Read the 'Performance vs Consistency' Chart:**
+
+- **X-Axis (Performance):** A player's average skill level. Further to the right is better.
+- **Y-Axis (Consistency):** A measure of how reliable a player is. Higher up is more consistent.
+- **Top-Right: ⭐ Stars** (High skill, high reliability). Your best and most dependable players.
+- **Top-Left: 🛡️ Dependable Role-Players** (Lower skill, high reliability). You know exactly what to expect from them.
+- **Bottom-Right: 💥 Wildcards** (High skill, low reliability). They can be brilliant but also have off-games.
+- **Bottom-Left: 🌱 Players Needing Development** (Lower skill, low reliability).
+""")
+st.markdown("---")
+
+
 # --- Leaderboards ---
 st.subheader("🏆 Leaderboards")
 
-# Create a summary dataframe with one row per player for the leaderboards
 player_summary = df.groupby('Player_ID').first().reset_index()
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
