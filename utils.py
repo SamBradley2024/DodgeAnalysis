@@ -180,14 +180,78 @@ def train_advanced_models(_df):
     
     return df, models
 
+def create_game_level_features(df):
+    """Transforms player-level data into game-level data for win prediction."""
+    # Calculate team-level stats for each game
+    team_game_stats = df.groupby(['Game_ID', 'Team']).agg(
+        Avg_Performance=('Overall_Performance', 'mean'),
+        Avg_KD_Ratio=('K/D_Ratio', 'mean'),
+        Avg_Hit_Accuracy=('Hit_Accuracy', 'mean'),
+        Win=('Game_Outcome', lambda x: 1 if (x == 'Win').any() else 0)
+    ).reset_index()
+
+    # Get the two teams for each game
+    game_teams = team_game_stats.groupby('Game_ID')['Team'].apply(list).reset_index()
+    game_teams = game_teams[game_teams['Team'].apply(len) == 2] # Only consider 2-team games
+
+    game_features = []
+    for _, row in game_teams.iterrows():
+        game_id = row['Game_ID']
+        team_a_name, team_b_name = row['Team'][0], row['Team'][1]
+        
+        team_a_stats = team_game_stats[(team_game_stats['Game_ID'] == game_id) & (team_game_stats['Team'] == team_a_name)].iloc[0]
+        team_b_stats = team_game_stats[(team_game_stats['Game_ID'] == game_id) & (team_game_stats['Team'] == team_b_name)].iloc[0]
+        
+        # Create a feature row for the model
+        feature_row = {
+            'Team_A_Avg_Perf': team_a_stats['Avg_Performance'],
+            'Team_A_Avg_KD': team_a_stats['Avg_KD_Ratio'],
+            'Team_A_Avg_Acc': team_a_stats['Avg_Hit_Accuracy'],
+            'Team_B_Avg_Perf': team_b_stats['Avg_Performance'],
+            'Team_B_Avg_KD': team_b_stats['Avg_KD_Ratio'],
+            'Team_B_Avg_Acc': team_b_stats['Avg_Hit_Accuracy'],
+            'Team_A_Won': team_a_stats['Win']
+        }
+        game_features.append(feature_row)
+        
+    return pd.DataFrame(game_features)
+
+def train_win_prediction_model(game_level_df):
+    """Trains a model to predict game outcomes based on team stats."""
+    if game_level_df.shape[0] < 10: # Need at least a few games to train
+        st.warning("Not enough game data to train a win prediction model.")
+        return None, None
+        
+    features = [col for col in game_level_df.columns if col != 'Team_A_Won']
+    X = game_level_df[features]
+    y = game_level_df['Team_A_Won']
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
+    
+    model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+    model.fit(X_train, y_train)
+    
+    accuracy = model.score(X_test, y_test)
+    st.session_state.win_model_accuracy = accuracy # Store accuracy for display
+    
+    return model, features
+
 def initialize_app(df, source_name):
     """
-    Takes a raw dataframe, enhances it, trains models, and stores everything in session state.
+    Takes a raw dataframe, enhances it, trains all models, and stores everything in session state.
     """
     with st.spinner(f"Processing data from '{source_name}' and training models..."):
         df_enhanced = enhance_dataframe(df.copy())
         if df_enhanced is not None:
             df_trained, models = train_advanced_models(df_enhanced)
+            
+            # --- NEW: Train the win prediction model ---
+            game_level_df = create_game_level_features(df_trained)
+            win_model, win_model_features = train_win_prediction_model(game_level_df)
+            if win_model:
+                models['win_predictor'] = (win_model, win_model_features)
+            # --- END OF NEW BLOCK ---
+            
             st.session_state.df_enhanced = df_trained
             st.session_state.models = models
             st.session_state.data_loaded = True
