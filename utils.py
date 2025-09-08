@@ -11,8 +11,9 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import warnings
-# New import for the Google Sheets connection
-from streamlit_gspread import GSpreadConnection
+# UPDATED IMPORTS for manual gspread connection
+import gspread
+from google.oauth2.service_account import Credentials
 
 warnings.filterwarnings('ignore')
 
@@ -63,18 +64,37 @@ def styled_metric(label, value, help_text=""):
 
 
 # --- Data Loading and Feature Engineering ---
-@st.cache_data(ttl=600) # Cache for 10 minutes (600 seconds)
+@st.cache_data(ttl=600) # Cache for 10 minutes
 def load_and_enhance_data():
     """Enhanced data loading from Google Sheets with feature engineering."""
     
-    # Create a connection to Google Sheets using the secrets
-    conn = st.connection("gspread", type=GSpreadConnection)
-    
-    # Read the data from the default worksheet.
-    # Ensure your Google Sheet is shared with the service account email.
-    df = conn.read(worksheet="Sheet1", ttl=0) # ttl=0 forces re-read from connection if cache is stale
-    
-    # --- The rest of your feature engineering is UNCHANGED ---
+    # --- UPDATED: Manual authentication with gspread ---
+    try:
+        # Define the scope of access
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        # Get credentials from Streamlit secrets
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=scopes
+        )
+        client = gspread.authorize(creds)
+
+        # Open the Google Sheet by its title
+        # IMPORTANT: Make sure your Google Sheet is named "Dodgeball App Data"
+        sheet = client.open("Dodgeball App Data").worksheet("Sheet1")
+        
+        # Get all data and convert to a DataFrame
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+
+    except Exception as e:
+        st.error(f"An error occurred while connecting to Google Sheets: {e}")
+        st.info("Please ensure your `secrets.toml` is correctly configured and the sheet is shared with the client email.")
+        return None
+
+    # --- Feature engineering (UNCHANGED) ---
     df['Times_Eliminated'] = df['Hit_Out'] + df['Caught_Out']
     df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
     df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
@@ -185,8 +205,7 @@ def train_advanced_models(_df):
     return df, models
 
 
-# --- Visualization Functions ---
-
+# --- Visualization Functions (Unchanged) ---
 def create_player_dashboard(df, player_id):
     """Create comprehensive player dashboard with multiple visualizations."""
     player_data = df[df['Player_ID'] == player_id]
@@ -279,8 +298,6 @@ def create_league_overview(df):
     fig.update_layout(height=800, title_text="League Overview Dashboard", polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()])))
     return fig
 
-
-# --- Specialization and Coaching Functions ---
 
 def create_specialization_analysis(df):
     """Creates visualizations to analyze player specialization."""
