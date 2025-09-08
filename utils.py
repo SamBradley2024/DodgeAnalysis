@@ -63,7 +63,7 @@ def styled_metric(label, value, help_text=""):
 # --- Centralized Sidebar and State Management ---
 
 def handle_sheet_change():
-    """Callback function to set a flag when the sheet changes."""
+    """Callback function to set a flag when the sheet selection changes."""
     # This check ensures we only flag a reload when the selection actually changes
     if 'loaded_sheet' in st.session_state and st.session_state.loaded_sheet != st.session_state.selected_sheet:
         st.session_state.data_needs_reload = True
@@ -97,13 +97,13 @@ def initialize_app(worksheet_name):
             st.session_state.df_enhanced = df_enhanced
             st.session_state.models = models
             st.session_state.data_loaded = True
-            st.session_state.loaded_sheet = worksheet_name
+            st.session_state.loaded_sheet = worksheet_name # IMPORTANT: Track what's loaded
             st.session_state.data_needs_reload = False # Reset the flag after loading
 
 # --- Google Sheets Connection Functions ---
 @st.cache_data(ttl=300) # Cache for 5 minutes
 def get_worksheet_names():
-    """Gets a list of all worksheet names from the Google Sheet."""
+    """Gets a list of all worksheet (tab) names from the Google Sheet."""
     try:
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
@@ -184,7 +184,7 @@ def train_advanced_models(_df):
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
-    if df_role_features.empty or len(df_role_features) < 4:
+    if df_role_features.empty or len(df_role_features) < 4: # KMeans needs at least n_clusters samples
         st.warning("Not enough data to create player roles for the selected sheet.")
         # Add an empty Player_Role column to prevent key errors on other pages
         df['Player_Role'] = 'N/A'
@@ -196,6 +196,7 @@ def train_advanced_models(_df):
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
 
+    # Dynamic Role Naming Logic
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -246,7 +247,6 @@ def train_advanced_models(_df):
         
     return df, models
 
-
 # --- Visualization Functions ---
 def create_player_dashboard(df, player_id):
     player_data = df[df['Player_ID'] == player_id]
@@ -288,7 +288,6 @@ def create_player_dashboard(df, player_id):
     fig.update_layout(height=800, showlegend=False, title_text=f"Comprehensive Dashboard: {player_id}")
     return fig
 
-
 def create_team_analytics(df, team_id):
     team_data = df[df['Team'] == team_id]
     fig = make_subplots(
@@ -299,15 +298,15 @@ def create_team_analytics(df, team_id):
     fig.add_trace(go.Histogram(x=team_data['Overall_Performance'], nbinsx=15, name='Performance Distribution', marker_color='#4ECDC4'), row=1, col=1)
     
     if 'Player_Role' in team_data.columns:
-        role_counts = team_data['Player_Role'].value_counts()
-        fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
+        role_counts = team_data['Player_Role'].dropna().value_counts()
+        if not role_counts.empty:
+            fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
     
     outcomes = team_data['Game_Outcome'].value_counts()
     fig.add_trace(go.Pie(labels=outcomes.index, values=outcomes.values, name="Outcomes"), row=2, col=1)
     fig.add_trace(go.Scatter(x=team_data['Offensive_Rating'], y=team_data['Defensive_Rating'], mode='markers', text=team_data['Player_ID'], name='Off vs Def Rating', marker=dict(size=10, color=team_data['Overall_Performance'], colorscale='Viridis', showscale=True)), row=2, col=2)
     fig.update_layout(height=800, title_text=f"Team Analytics: {team_id}", showlegend=False)
     return fig
-
 
 def create_league_overview(df):
     fig = make_subplots(

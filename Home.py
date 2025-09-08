@@ -12,11 +12,15 @@ st.set_page_config(
 # --- State Management and Sidebar ---
 # This block MUST be at the top of every page script
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-utils.add_sidebar() # Draws the sidebar and sets up the callback
 
-# Check if data needs to be loaded or reloaded
-# This happens on first run or when the 'data_needs_reload' flag is set by the callback
-if st.session_state.get('data_needs_reload', False) or 'data_loaded' not in st.session_state:
+# Initialize state keys if they don't exist
+if 'loaded_sheet' not in st.session_state:
+    st.session_state.loaded_sheet = None
+
+utils.add_sidebar() # Draws the sidebar and populates st.session_state.selected_sheet
+
+# The definitive check: reload if the selected sheet is different from the loaded one
+if st.session_state.selected_sheet != st.session_state.loaded_sheet:
     utils.initialize_app(st.session_state.selected_sheet)
 
 # --- App Homepage ---
@@ -30,7 +34,7 @@ st.markdown("""
 # Use the 'loaded_sheet' to show what data is currently displayed
 st.header(f"Displaying Analysis for: `{st.session_state.get('loaded_sheet', 'N/A')}`")
 
-if not st.session_state.get('data_loaded', False) or st.session_state.get('df_enhanced') is None:
+if st.session_state.get('df_enhanced') is None:
     st.error("Data could not be loaded. Please select a valid worksheet from the sidebar and ensure it contains data.")
     st.stop()
 else:

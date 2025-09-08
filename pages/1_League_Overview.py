@@ -1,16 +1,22 @@
 import streamlit as st
-import utils
+import utils 
 
 # --- State Management and Sidebar ---
+# This block MUST be at the top of every page script
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-selected_sheet = utils.add_sidebar()
 
-# Check if data needs to be loaded or reloaded
-if 'data_loaded' not in st.session_state or st.session_state.get('loaded_sheet') != selected_sheet:
+# Initialize state keys if they don't exist
+if 'loaded_sheet' not in st.session_state:
+    st.session_state.loaded_sheet = None
+
+utils.add_sidebar() # Draws the sidebar and populates st.session_state.selected_sheet
+
+# The definitive check: reload if the selected sheet is different from the loaded one
+if st.session_state.selected_sheet != st.session_state.loaded_sheet:
     utils.initialize_app(st.session_state.selected_sheet)
 
 # Final check for data loading before page content
-if not st.session_state.get('data_loaded', False) or st.session_state.get('df_enhanced') is None:
+if st.session_state.get('df_enhanced') is None:
     st.warning("Data could not be loaded. Please select a valid worksheet from the sidebar.")
     st.stop()
 
