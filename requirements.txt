@@ -6,3 +6,4 @@ gspread
 google-auth
 matplotlib
 seaborn
+statsmodels
