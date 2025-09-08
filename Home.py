@@ -1,52 +1,57 @@
 import streamlit as st
+import pandas as pd
 import utils
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Advanced Dodgeball Analytics",
+    page_title="Dodgeball Analytics - Welcome",
     page_icon="🤾",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# --- State Management and Sidebar ---
-# This block MUST be at the top of every page script
 st.markdown(utils.load_css(), unsafe_allow_html=True)
 
-# Initialize state keys if they don't exist
-if 'loaded_sheet' not in st.session_state:
-    st.session_state.loaded_sheet = None
+# --- State Check: If data is loaded, show a different message ---
+if 'data_loaded' in st.session_state and st.session_state.data_loaded:
+    st.success(f"Data from **{st.session_state.source_name}** is already loaded.")
+    st.info("Navigate to any page on the left to start the analysis. To use a different data source, please refresh this page.")
+    st.stop()
 
-utils.add_sidebar() # Draws the sidebar and populates st.session_state.selected_sheet
-
-# The definitive check: reload if the selected sheet is different from the loaded one
-if st.session_state.selected_sheet != st.session_state.loaded_sheet:
-    utils.initialize_app(st.session_state.selected_sheet)
-
-# --- App Homepage ---
+# --- Welcome and Data Source Selection ---
 st.markdown("""
 <div class="main-header">
-    <h1>🤾 Advanced Dodgeball Analytics Dashboard</h1>
-    <p>Professional-grade performance analysis with AI-powered insights</p>
+    <h1>Welcome to the Dodgeball Analytics Dashboard</h1>
+    <p>Please choose a data source to begin your analysis.</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Use the 'loaded_sheet' to show what data is currently displayed
-st.header(f"Displaying Analysis for: `{st.session_state.get('loaded_sheet', 'N/A')}`")
+# Define the two options in columns
+col1, col2 = st.columns(2)
 
-if st.session_state.get('df_enhanced') is None:
-    st.error("Data could not be loaded. Please select a valid worksheet from the sidebar and ensure it contains data.")
-    st.stop()
-else:
-    st.success("Data successfully loaded. Select a page from the navigation bar to begin.")
-    st.markdown("---")
-    st.subheader("Dashboard Features:")
-    st.markdown("""
-    - **🏠 League Overview**: High-level statistics, leaderboards, and team comparisons.
-    - **👤 Player Analysis**: Deep dive into individual player performance, trends, and skills.
-    - **🏆 Team Analysis**: Analyze team composition, performance, and player roles.
-    - **🤖 AI Insights**: Get automated, data-driven insights from the entire league dataset.
-    - **📊 Advanced Analytics**: Explore player specialization and statistical correlations.
-    - **🧑‍🏫 Coaching Corner**: Receive AI-powered coaching advice for players and teams.
-    - **🎲 Game Analysis**: View a match-by-match breakdown of performance.
-    """)
+# --- Option 1: Google Sheets ---
+with col1:
+    st.subheader("🔗 Option 1: Use Live Google Sheet")
+    st.write("Connect to the 'Dodgeball App Data' Google Sheet. Any edits you make to the sheet will be reflected in the app.")
+    
+    # Get a list of available sheets to choose from
+    sheet_names = utils.get_worksheet_names()
+    selected_sheet = st.selectbox("Select a worksheet", sheet_names)
+
+    if st.button("Load from Google Sheet"):
+        raw_df = utils.load_from_google_sheet(selected_sheet)
+        if raw_df is not None:
+            utils.initialize_app(raw_df, f"Google Sheet: {selected_sheet}")
+            st.rerun() # Rerun the script to show the success message
+
+# --- Option 2: CSV Upload ---
+with col2:
+    st.subheader("📄 Option 2: Upload a CSV File")
+    st.write("Upload your own dodgeball data. The file must have the same column headers as the template.")
+    
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+
+    if uploaded_file is not None:
+        # No button needed, will process automatically upon upload
+        raw_df = pd.read_csv(uploaded_file)
+        utils.initialize_app(raw_df, f"Uploaded File: {uploaded_file.name}")
+        st.rerun() # Rerun the script to show the success message

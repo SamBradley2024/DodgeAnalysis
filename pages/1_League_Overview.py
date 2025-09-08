@@ -3,20 +3,15 @@ import utils
 
 # --- State Management and Sidebar ---
 # This block MUST be at the top of every page script
+st.set_page_config(page_title="League Overview", page_icon="🏠", layout="wide")
 st.markdown(utils.load_css(), unsafe_allow_html=True)
+utils.add_sidebar() 
 
-# Initialize state keys if they don't exist
-if 'loaded_sheet' not in st.session_state:
-    st.session_state.loaded_sheet = None
-
-utils.add_sidebar() # Draws the sidebar and populates st.session_state.selected_sheet
-
-# The definitive check: reload if the selected sheet is different from the loaded one
-if st.session_state.selected_sheet != st.session_state.loaded_sheet:
-    utils.initialize_app(st.session_state.selected_sheet)
+# The definitive check: reload if data is missing.
+utils.main_data_loader()
 
 # Final check for data loading before page content
-if st.session_state.get('df_enhanced') is None:
+if 'df_enhanced' not in st.session_state or st.session_state.df_enhanced is None:
     st.warning("Data could not be loaded. Please select a valid worksheet from the sidebar.")
     st.stop()
 
@@ -46,7 +41,6 @@ st.plotly_chart(utils.create_league_overview(df), use_container_width=True)
 # --- Leaderboards ---
 st.subheader("🏆 Leaderboards")
 
-# --- THIS IS THE MISSING LINE ---
 # Create a summary dataframe with one row per player for the leaderboards
 player_summary = df.groupby('Player_ID').first().reset_index()
 

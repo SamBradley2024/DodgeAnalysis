@@ -2,35 +2,36 @@ import streamlit as st
 import utils 
 
 # --- State Management and Sidebar ---
-# This block MUST be at the top of every page script
+st.set_page_config(page_title="Team Analysis", page_icon="🏆", layout="wide")
 st.markdown(utils.load_css(), unsafe_allow_html=True)
+utils.add_sidebar() 
 
-# Initialize state keys if they don't exist
-if 'loaded_sheet' not in st.session_state:
-    st.session_state.loaded_sheet = None
-
-utils.add_sidebar() # Draws the sidebar and populates st.session_state.selected_sheet
-
-# The definitive check: reload if the selected sheet is different from the loaded one
-if st.session_state.selected_sheet != st.session_state.loaded_sheet:
-    utils.initialize_app(st.session_state.selected_sheet)
+# The definitive check: reload if data is missing.
+utils.main_data_loader()
 
 # Final check for data loading before page content
-if st.session_state.get('df_enhanced') is None:
+if 'df_enhanced' not in st.session_state or st.session_state.df_enhanced is None:
     st.warning("Data could not be loaded. Please select a valid worksheet from the sidebar.")
     st.stop()
 
 # Get the dataframe and models from session state
 df = st.session_state.df_enhanced
 models = st.session_state.models
+
+# --- Page Content ---
 st.header("Team Analysis")
+st.write(f"Displaying data from worksheet: **{st.session_state.loaded_sheet}**")
 
 team_list = sorted(df['Team'].unique())
+if not team_list:
+    st.warning("No teams found in the selected worksheet.")
+    st.stop()
+
 selected_team = st.selectbox("Select Team", team_list)
 
 if selected_team:
     team_data = df[df['Team'] == selected_team]
-
+    
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         utils.styled_metric("Team Size", team_data['Player_ID'].nunique())
@@ -41,9 +42,11 @@ if selected_team:
         avg_perf = team_data['Overall_Performance'].mean()
         utils.styled_metric("Avg Performance", f"{avg_perf:.2f}")
     with col4:
-        # Get the most common player role on the team
-        dominant_role = team_data['Player_Role'].mode()[0]
-        utils.styled_metric("Dominant Role", dominant_role)
+        if 'Player_Role' in team_data.columns and not team_data['Player_Role'].dropna().empty:
+            dominant_role = team_data['Player_Role'].mode()[0]
+            utils.styled_metric("Dominant Role", dominant_role)
+        else:
+            utils.styled_metric("Dominant Role", "N/A")
 
     fig = utils.create_team_analytics(df, selected_team)
     st.plotly_chart(fig, use_container_width=True)

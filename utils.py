@@ -23,33 +23,20 @@ def load_css():
     return """
     <style>
         .main-header {
-            background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
-            padding: 2rem;
-            border-radius: 10px;
-            margin-bottom: 2rem;
-            color: white;
-            text-align: center;
+            background: linear-gradient(90deg, #FF6B6B, #4ECDC4); padding: 2rem; border-radius: 10px;
+            margin-bottom: 2rem; color: white; text-align: center;
         }
         .metric-container {
-            background: #f8f9fa;
-            padding: 1rem;
-            border-radius: 8px;
-            border-left: 4px solid #4ECDC4;
-            margin: 0.5rem 0;
+            background: #f8f9fa; padding: 1rem; border-radius: 8px;
+            border-left: 4px solid #4ECDC4; margin: 0.5rem 0;
         }
         .insight-box {
-            background: #e8f4fd;
-            padding: 1rem;
-            border-radius: 8px;
-            border-left: 4px solid #1f77b4;
-            margin: 1rem 0;
+            background: #e8f4fd; padding: 1rem; border-radius: 8px;
+            border-left: 4px solid #1f77b4; margin: 1rem 0;
         }
         .warning-box {
-            background: #fff3cd;
-            padding: 1rem;
-            border-radius: 8px;
-            border-left: 4px solid #ffc107;
-            margin: 1rem 0;
+            background: #fff3cd; padding: 1rem; border-radius: 8px;
+            border-left: 4px solid #ffc107; margin: 1rem 0;
         }
     </style>
     """
@@ -60,58 +47,14 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- Centralized Sidebar and State Management ---
+# --- Data Loading and Processing Functions ---
 
-def handle_sheet_change():
-    """Callback function to set a flag when the sheet selection changes."""
-    # This check ensures we only flag a reload when the selection actually changes
-    if 'loaded_sheet' in st.session_state and st.session_state.loaded_sheet != st.session_state.selected_sheet:
-        st.session_state.data_needs_reload = True
-
-def add_sidebar():
-    """Adds a sidebar with a worksheet selector to the app."""
-    st.sidebar.title("Data Source")
-    sheet_names = get_worksheet_names()
-    
-    st.sidebar.selectbox(
-        "Select a Worksheet (e.g., Season)",
-        sheet_names,
-        key='selected_sheet',
-        on_change=handle_sheet_change # Use the callback here
-    )
-
-def initialize_app(worksheet_name):
-    """
-    Loads data from a specific worksheet and trains models,
-    storing them in the session state. This is the master function
-    to call whenever data needs to be loaded or reloaded.
-    """
-    with st.spinner(f"Loading data from '{worksheet_name}' and training models..."):
-        df = load_and_enhance_data(worksheet_name)
-        if df is not None:
-            # Clear previous model cache to ensure fresh models are trained
-            if 'models' in st.session_state:
-                del st.session_state['models']
-                
-            df_enhanced, models = train_advanced_models(df.copy())
-            st.session_state.df_enhanced = df_enhanced
-            st.session_state.models = models
-            st.session_state.data_loaded = True
-            st.session_state.loaded_sheet = worksheet_name # IMPORTANT: Track what's loaded
-            st.session_state.data_needs_reload = False # Reset the flag after loading
-
-# --- Google Sheets Connection Functions ---
-@st.cache_data(ttl=300) # Cache for 5 minutes
+@st.cache_data(ttl=300)
 def get_worksheet_names():
-    """Gets a list of all worksheet (tab) names from the Google Sheet."""
+    """Gets a list of all worksheet names from the Google Sheet."""
     try:
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive.readonly"
-        ]
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"], scopes=scopes
-        )
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
+        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
         client = gspread.authorize(creds)
         spreadsheet = client.open("Dodgeball App Data")
         return [sheet.title for sheet in spreadsheet.worksheets()]
@@ -119,9 +62,9 @@ def get_worksheet_names():
         st.error(f"Could not retrieve worksheet names: {e}")
         return ["Sheet1"]
 
-@st.cache_data(ttl=300) # Cache for 5 minutes
-def load_and_enhance_data(worksheet_name):
-    """Loads and processes data from a specific Google Sheet worksheet."""
+@st.cache_data(ttl=300)
+def load_from_google_sheet(worksheet_name):
+    """Loads a DataFrame from a specific Google Sheet worksheet."""
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.readonly"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
@@ -131,15 +74,21 @@ def load_and_enhance_data(worksheet_name):
         if not data:
             st.warning(f"Worksheet '{worksheet_name}' is empty or has no data.")
             return None
-        df = pd.DataFrame(data)
+        return pd.DataFrame(data)
     except gspread.exceptions.WorksheetNotFound:
         st.error(f"Worksheet '{worksheet_name}' not found in the Google Sheet.")
         return None
     except Exception as e:
-        st.error(f"Error reading from worksheet '{worksheet_name}': {e}")
+        st.error(f"Error reading from Google Sheets: {e}")
         return None
 
-    # --- Feature engineering logic ---
+def enhance_dataframe(df):
+    """Takes a raw dataframe and adds all the calculated metrics and features."""
+    required_cols = ['Player_ID', 'Team', 'Game_ID', 'Game_Outcome', 'Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
+    if not all(col in df.columns for col in required_cols):
+        st.error("The provided data is missing one or more required columns. Please ensure your data has the following headers: " + ", ".join(required_cols))
+        return None
+
     numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -170,33 +119,27 @@ def load_and_enhance_data(worksheet_name):
 
     player_stats['Consistency_Score'] = 1 / (player_stats['Performance_Consistency'] + 0.01)
     df = df.merge(player_stats, on='Player_ID', how='left')
-
     return df
 
-# --- Advanced ML Models ---
 @st.cache_resource
 def train_advanced_models(_df):
     """Trains ML models; now more robust against small datasets."""
     df = _df.copy()
     models = {}
     
-    # Player Role Classification
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
-    if df_role_features.empty or len(df_role_features) < 4: # KMeans needs at least n_clusters samples
-        st.warning("Not enough data to create player roles for the selected sheet.")
-        # Add an empty Player_Role column to prevent key errors on other pages
+    if df_role_features.empty or len(df_role_features) < 4:
+        st.warning("Not enough data to create player roles for the selected data source.")
         df['Player_Role'] = 'N/A'
         return df, models
 
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(df_role_features)
-
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
-
-    # Dynamic Role Naming Logic
+    
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -205,7 +148,6 @@ def train_advanced_models(_df):
         'Catches': 'Catcher', 'Hit_Accuracy': 'Accurate', 'Defensive_Efficiency': 'Efficient',
         'Offensive_Rating': 'Offensive', 'Defensive_Rating': 'Defensive', 'K/D_Ratio': 'Clutch'
     }
-
     for i in range(cluster_centers_unscaled.shape[0]):
         center_stats = pd.Series(cluster_centers_unscaled[i], index=role_features)
         specialization_scores = (center_stats - league_average_stats) / (league_average_stats + 1e-6)
@@ -219,33 +161,24 @@ def train_advanced_models(_df):
             counter += 1
             final_role_name = f"{base_role_name} ({counter})"
         role_names.append(final_role_name)
-
     role_mapping = {i: role_names[i] for i in range(len(role_names))}
     df['Player_Role'] = df['Role_Cluster'].map(role_mapping)
     models['role_model'] = (kmeans, scaler, role_mapping, role_names)
     
-    # Game Outcome Prediction
-    outcome_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Overall_Performance', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio', 'Net_Impact']
-    outcome_df = df.dropna(subset=outcome_features + ['Game_Outcome'])
-    if len(outcome_df) > 1 and len(outcome_df['Game_Outcome'].unique()) > 1:
-        le = LabelEncoder()
-        y = le.fit_transform(outcome_df['Game_Outcome'])
-        X = outcome_df[outcome_features]
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
-        rf_classifier.fit(X_train, y_train)
-        accuracy = accuracy_score(y_test, rf_classifier.predict(X_test))
-        models['outcome_model'] = (rf_classifier, le, accuracy, outcome_features)
-
-    # Performance Prediction
-    perf_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Times_Eliminated']
-    perf_df = df.dropna(subset=perf_features + ['Overall_Performance'])
-    if not perf_df.empty:
-        gb_regressor = GradientBoostingRegressor(n_estimators=100, random_state=42)
-        gb_regressor.fit(perf_df[perf_features], perf_df['Overall_Performance'])
-        models['performance_model'] = (gb_regressor, perf_features)
-        
     return df, models
+
+def initialize_app(df, source_name):
+    """
+    Takes a raw dataframe, enhances it, trains models, and stores everything in session state.
+    """
+    with st.spinner(f"Processing data from '{source_name}' and training models..."):
+        df_enhanced = enhance_dataframe(df.copy())
+        if df_enhanced is not None:
+            df_trained, models = train_advanced_models(df_enhanced)
+            st.session_state.df_enhanced = df_trained
+            st.session_state.models = models
+            st.session_state.data_loaded = True
+            st.session_state.source_name = source_name
 
 # --- Visualization Functions ---
 def create_player_dashboard(df, player_id):
@@ -334,7 +267,6 @@ def create_league_overview(df):
     fig.update_layout(height=800, title_text="League Overview Dashboard", polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()])))
     return fig
 
-
 def create_specialization_analysis(df):
     st.header("Player Specialization Analysis")
     st.write("This section identifies players who are specialists in key skills by comparing their performance against the league average.")
@@ -362,7 +294,6 @@ def create_specialization_analysis(df):
         st.write("⚡ **Top 'Clutch' Players (K/D Ratio)**")
         top_kd = specialization.sort_values('K/D_Ratio', ascending=False).head(5)
         st.dataframe(top_kd[['K/D_Ratio']].style.format("{:.2f}x Avg").background_gradient(cmap='Purples'))
-
 
 def generate_player_coaching_report(df, player_id):
     player_data = df[df['Player_ID'] == player_id]
@@ -419,7 +350,6 @@ def generate_player_coaching_report(df, player_id):
     fig.update_layout(barmode='group', title_text='Performance Comparison', xaxis_title="Statistic", yaxis_title="Average Value")
     return report, fig
 
-
 def generate_team_coaching_report(df, team_id):
     team_data = df[df['Team'] == team_id]
     if team_data.empty:
@@ -445,7 +375,6 @@ def generate_team_coaching_report(df, team_id):
         if not has_catcher:
             report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player.")
     return report
-
 
 def generate_insights(df):
     insights = []
