@@ -1,24 +1,28 @@
 import streamlit as st
-import utils 
+import utils
 
 # --- State Management and Sidebar ---
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-utils.add_sidebar() 
+selected_sheet = utils.add_sidebar()
 
 # Check if data needs to be loaded or reloaded
-if st.session_state.get('data_needs_reload', False) or 'data_loaded' not in st.session_state:
+if 'data_loaded' not in st.session_state or st.session_state.get('loaded_sheet') != selected_sheet:
     utils.initialize_app(st.session_state.selected_sheet)
 
 # Final check for data loading before page content
-if not st.session_state.get('data_loaded', False):
-    st.warning("Please select a valid worksheet from the sidebar to load the data.")
+if not st.session_state.get('data_loaded', False) or st.session_state.get('df_enhanced') is None:
+    st.warning("Data could not be loaded. Please select a valid worksheet from the sidebar.")
     st.stop()
 
 # Get the dataframe and models from session state
 df = st.session_state.df_enhanced
 models = st.session_state.models
-st.header("League Overview")
 
+# --- Page Content ---
+st.header("League Overview")
+st.write(f"Displaying data from worksheet: **{st.session_state.loaded_sheet}**")
+
+# --- Key Metrics ---
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     utils.styled_metric("Total Players", df['Player_ID'].nunique())
@@ -30,10 +34,16 @@ with col4:
     avg_performance = df['Overall_Performance'].mean()
     utils.styled_metric("Avg Performance", f"{avg_performance:.2f}")
 
+# --- Main Visual ---
 st.plotly_chart(utils.create_league_overview(df), use_container_width=True)
 
+# --- Leaderboards ---
 st.subheader("🏆 Leaderboards")
-# UPDATED: Added new tabs for more leaderboards
+
+# --- THIS IS THE MISSING LINE ---
+# Create a summary dataframe with one row per player for the leaderboards
+player_summary = df.groupby('Player_ID').first().reset_index()
+
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Overall Performance", "K/D Ratio", "Hit Accuracy",
     "Top Throwers", "Top Dodgers", "Top Blockers", "Win Rate"
