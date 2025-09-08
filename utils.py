@@ -11,6 +11,7 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import warnings
+# UPDATED IMPORTS for Google Sheets connection
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -61,12 +62,16 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- NEW: Function to get all worksheet names ---
+
+# --- Google Sheets Connection Functions ---
 @st.cache_data(ttl=600)
 def get_worksheet_names():
     """Gets a list of all worksheet (tab) names from the Google Sheet."""
     try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly"
+        ]
         creds = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], scopes=scopes
         )
@@ -77,19 +82,19 @@ def get_worksheet_names():
         st.error(f"Could not retrieve worksheet names: {e}")
         return ["Sheet1"] # Fallback to default
 
-# --- Data Loading and Feature Engineering ---
-# UPDATED: The function now accepts a worksheet_name argument
 @st.cache_data(ttl=600)
 def load_and_enhance_data(worksheet_name):
     """Loads data from a specific Google Sheet worksheet and performs feature engineering."""
     try:
-        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.readonly"
+        ]
         creds = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], scopes=scopes
         )
         client = gspread.authorize(creds)
         
-        # UPDATED: Open the specified worksheet
         sheet = client.open("Dodgeball App Data").worksheet(worksheet_name)
         
         data = sheet.get_all_records()
@@ -99,7 +104,7 @@ def load_and_enhance_data(worksheet_name):
         st.error(f"Error reading from worksheet '{worksheet_name}': {e}")
         return None
 
-    # --- Feature engineering logic (unchanged) ---
+    # --- Feature engineering logic ---
     numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -158,10 +163,14 @@ def train_advanced_models(_df):
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
+    if df_role_features.empty:
+        st.warning("Not enough data to create player roles.")
+        return df, models
+
     scaler = StandardScaler()
     scaled_features = scaler.fit_transform(df_role_features)
 
-    kmeans = KMeans(n_clusters=4, random_state=42, n_init=20)
+    kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
 
     # Dynamic Role Naming Logic
@@ -195,26 +204,28 @@ def train_advanced_models(_df):
     # Game Outcome Prediction
     outcome_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Overall_Performance', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio', 'Net_Impact']
     outcome_df = df.dropna(subset=outcome_features + ['Game_Outcome'])
-    le = LabelEncoder()
-    y = le.fit_transform(outcome_df['Game_Outcome'])
-    X = outcome_df[outcome_features]
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-    rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
-    rf_classifier.fit(X_train, y_train)
-    accuracy = accuracy_score(y_test, rf_classifier.predict(X_test))
-    models['outcome_model'] = (rf_classifier, le, accuracy, outcome_features)
+    if len(outcome_df) > 1 and len(outcome_df['Game_Outcome'].unique()) > 1:
+        le = LabelEncoder()
+        y = le.fit_transform(outcome_df['Game_Outcome'])
+        X = outcome_df[outcome_features]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        rf_classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+        rf_classifier.fit(X_train, y_train)
+        accuracy = accuracy_score(y_test, rf_classifier.predict(X_test))
+        models['outcome_model'] = (rf_classifier, le, accuracy, outcome_features)
 
     # Performance Prediction
     perf_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Times_Eliminated']
     perf_df = df.dropna(subset=perf_features + ['Overall_Performance'])
-    gb_regressor = GradientBoostingRegressor(n_estimators=100, random_state=42)
-    gb_regressor.fit(perf_df[perf_features], perf_df['Overall_Performance'])
-    models['performance_model'] = (gb_regressor, perf_features)
+    if not perf_df.empty:
+        gb_regressor = GradientBoostingRegressor(n_estimators=100, random_state=42)
+        gb_regressor.fit(perf_df[perf_features], perf_df['Overall_Performance'])
+        models['performance_model'] = (gb_regressor, perf_features)
 
     return df, models
 
 
-# --- Visualization Functions (Unchanged) ---
+# --- Visualization Functions ---
 def create_player_dashboard(df, player_id):
     """Create comprehensive player dashboard with multiple visualizations."""
     player_data = df[df['Player_ID'] == player_id]
@@ -276,8 +287,11 @@ def create_team_analytics(df, team_id):
         specs=[[{"type": "histogram"}, {"type": "bar"}], [{"type": "pie"}, {"type": "scatter"}]]
     )
     fig.add_trace(go.Histogram(x=team_data['Overall_Performance'], nbinsx=15, name='Performance Distribution', marker_color='#4ECDC4'), row=1, col=1)
-    role_counts = team_data['Player_Role'].value_counts()
-    fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
+    
+    if 'Player_Role' in team_data.columns:
+        role_counts = team_data['Player_Role'].value_counts()
+        fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
+    
     outcomes = team_data['Game_Outcome'].value_counts()
     fig.add_trace(go.Pie(labels=outcomes.index, values=outcomes.values, name="Outcomes"), row=2, col=1)
     fig.add_trace(go.Scatter(x=team_data['Offensive_Rating'], y=team_data['Defensive_Rating'], mode='markers', text=team_data['Player_ID'], name='Off vs Def Rating', marker=dict(size=10, color=team_data['Overall_Performance'], colorscale='Viridis', showscale=True)), row=2, col=2)
@@ -294,14 +308,19 @@ def create_league_overview(df):
     )
     top_players = df.groupby('Player_ID')['Overall_Performance'].mean().nlargest(10)
     fig.add_trace(go.Bar(x=top_players.index, y=top_players.values, name='Top Performers', marker_color='#FF6B6B'), row=1, col=1)
+    
     teams = df['Team'].unique()[:5]
     colors = px.colors.qualitative.Plotly
     stats_radar = ['Hits', 'Throws', 'Blocks', 'Dodges', 'Catches']
     for i, team in enumerate(teams):
         team_stats = df[df['Team'] == team][stats_radar].mean()
         fig.add_trace(go.Scatterpolar(r=team_stats.values, theta=stats_radar, fill='toself', name=team, line_color=colors[i]), row=1, col=2)
-    role_counts = df['Player_Role'].value_counts()
-    fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles"), row=2, col=1)
+    
+    if 'Player_Role' in df.columns:
+        role_counts = df['Player_Role'].value_counts()
+        if not role_counts.empty:
+            fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles"), row=2, col=1)
+    
     player_summary = df.groupby('Player_ID').agg(Overall_Performance=('Overall_Performance', 'mean'), Win_Rate=('Win_Rate', 'first'), Consistency_Score=('Consistency_Score', 'first')).reset_index().dropna()
     fig.add_trace(go.Scatter(x=player_summary['Overall_Performance'], y=player_summary['Consistency_Score'], mode='markers', text=player_summary['Player_ID'], marker=dict(size=player_summary['Win_Rate'] * 20 + 5, color=player_summary['Win_Rate'], colorscale='Viridis', showscale=True, colorbar_title='Win Rate'), name='Performance vs Consistency'), row=2, col=2)
     fig.update_layout(height=800, title_text="League Overview Dashboard", polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()])))
@@ -343,15 +362,27 @@ def generate_player_coaching_report(df, player_id):
     player_data = df[df['Player_ID'] == player_id]
     if player_data.empty:
         return ["No data for this player."], None
+
     player_avg_stats = player_data.mean(numeric_only=True)
-    player_role = player_data['Player_Role'].iloc[0]
-    role_avg_stats = df[df['Player_Role'] == player_role].mean(numeric_only=True)
+    
+    if 'Player_Role' not in player_data.columns or player_data['Player_Role'].isnull().all():
+        player_role = "N/A"
+        role_avg_stats = pd.Series()
+    else:
+        player_role = player_data['Player_Role'].iloc[0]
+        role_avg_stats = df[df['Player_Role'] == player_role].mean(numeric_only=True)
+
     league_avg_stats = df.mean(numeric_only=True)
     stats_to_compare = ['Hits', 'Throws', 'Catches', 'Dodges', 'Hit_Accuracy', 'Defensive_Efficiency', 'K/D_Ratio']
-    role_weaknesses = {stat: (player_avg_stats.get(stat, 0) - role_avg_stats.get(stat, 0)) / (role_avg_stats.get(stat, 0) + 1e-6) for stat in stats_to_compare}
-    role_weaknesses = {k: v for k, v in role_weaknesses.items() if v < -0.1}
+    
+    role_weaknesses = {}
+    if not role_avg_stats.empty:
+        role_weaknesses = {stat: (player_avg_stats.get(stat, 0) - role_avg_stats.get(stat, 0)) / (role_avg_stats.get(stat, 0) + 1e-6) for stat in stats_to_compare}
+        role_weaknesses = {k: v for k, v in role_weaknesses.items() if v < -0.1}
+
     overall_weaknesses = {stat: (player_avg_stats.get(stat, 0) - league_avg_stats.get(stat, 0)) / (league_avg_stats.get(stat, 0) + 1e-6) for stat in stats_to_compare}
     overall_weaknesses = {k: v for k, v in overall_weaknesses.items() if v < -0.1}
+
     report = [f"### Coaching Focus for {player_id} ({player_role})"]
     advice_map = {
         'Hit_Accuracy': "🎯 **Suggestion**: Focus on throwing drills. Practice aiming for smaller targets to improve precision under pressure.",
@@ -372,11 +403,13 @@ def generate_player_coaching_report(df, player_id):
         report.append(f"**Overall Weakness**: **{stat}**. Compared to the entire league, this is a key area to focus on for fundamental improvement.")
         if not role_weaknesses or stat != min(role_weaknesses, key=role_weaknesses.get):
              report.append(advice_map.get(stat))
-    fig = go.Figure(data=[
-        go.Bar(name=f'{player_id} (You)', x=stats_to_compare, y=[player_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#FF6B6B'),
-        go.Bar(name='Role Average', x=stats_to_compare, y=[role_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#4ECDC4'),
-        go.Bar(name='League Average', x=stats_to_compare, y=[league_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#45B7D1')
-    ])
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name=f'{player_id} (You)', x=stats_to_compare, y=[player_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#FF6B6B'))
+    if not role_avg_stats.empty:
+        fig.add_trace(go.Bar(name='Role Average', x=stats_to_compare, y=[role_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#4ECDC4'))
+    fig.add_trace(go.Bar(name='League Average', x=stats_to_compare, y=[league_avg_stats.get(s, 0) for s in stats_to_compare], marker_color='#45B7D1'))
+    
     fig.update_layout(barmode='group', title_text='Performance Comparison', xaxis_title="Statistic", yaxis_title="Average Value")
     return report, fig
 
@@ -401,13 +434,14 @@ def generate_team_coaching_report(df, team_id):
         'K/D_Ratio': "⚡ **Team Focus**: The team needs to improve its elimination efficiency. Run game simulations focusing on protecting high-value players and targeting opponent weaknesses."
     }
     report.append(advice_map.get(biggest_weakness, "Focus on improving this area through targeted drills."))
-    has_catcher = any('Catcher' in str(role) for role in team_data['Player_Role'].unique())
-    if not has_catcher:
-        report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player. Consider training a player for this role to improve defensive stability.")
+    
+    if 'Player_Role' in team_data.columns and not team_data['Player_Role'].isnull().all():
+        has_catcher = any('Catcher' in str(role) for role in team_data['Player_Role'].unique())
+        if not has_catcher:
+            report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player. Consider training a player for this role to improve defensive stability.")
     return report
 
 
-# --- AI Insights Generation ---
 def generate_insights(df):
     """Generate AI-powered insights from the data."""
     insights = []
@@ -421,6 +455,8 @@ def generate_insights(df):
 
     best_team = df.groupby('Team')['Overall_Performance'].mean().idxmax()
     insights.append(f"🥇 **Strongest Team**: {best_team} with the highest average performance.")
-    best_role = df.groupby('Player_Role')['Overall_Performance'].mean().idxmax()
-    insights.append(f"✨ **Most Effective Role**: Players classified as **{best_role}** show the highest average performance across the league.")
+    
+    if 'Player_Role' in df.columns and not df['Player_Role'].isnull().all():
+        best_role = df.groupby('Player_Role')['Overall_Performance'].mean().idxmax()
+        insights.append(f"✨ **Most Effective Role**: Players classified as **{best_role}** show the highest average performance across the league.")
     return insights
