@@ -11,7 +11,8 @@ st.set_page_config(
 
 # Custom CSS for better styling
 st.markdown(utils.load_css(), unsafe_allow_html=True)
-
+# Add the sidebar to the page and get the selected sheet
+selected_sheet = utils.add_sidebar()
 
 def initialize_app(worksheet_name):
     """
@@ -21,34 +22,16 @@ def initialize_app(worksheet_name):
     with st.spinner(f"Loading data from '{worksheet_name}' and training models..."):
         df = utils.load_and_enhance_data(worksheet_name)
         if df is not None:
-            # Clear previous model cache if it exists to avoid conflicts
-            if 'models' in st.session_state:
-                del st.session_state['models']
-            
             df_enhanced, models = utils.train_advanced_models(df.copy())
             st.session_state['df_enhanced'] = df_enhanced
             st.session_state['models'] = models
             st.session_state['data_loaded'] = True
-            st.session_state['loaded_sheet'] = worksheet_name
-
-
-# --- Sidebar for Worksheet Selection ---
-st.sidebar.title("Data Source")
-sheet_names = utils.get_worksheet_names()
-
-# SIMPLIFIED LOGIC: The `key` handles the state automatically.
-# The selectbox will now remember its own state across page navigations.
-st.sidebar.selectbox(
-    "Select a Worksheet (e.g., Season)",
-    sheet_names,
-    key='selected_sheet' 
-)
+            st.session_state['loaded_sheet'] = worksheet_name # Track which sheet is loaded
 
 # --- Main Application Logic ---
-# Check if data needs to be loaded or reloaded using the session state key
-if 'data_loaded' not in st.session_state or st.session_state.get('loaded_sheet') != st.session_state.selected_sheet:
-    initialize_app(st.session_state.selected_sheet)
-
+# Check if data needs to be loaded or reloaded
+if 'data_loaded' not in st.session_state or st.session_state.get('loaded_sheet') != selected_sheet:
+    initialize_app(selected_sheet)
 
 # --- App Homepage ---
 st.markdown("""
@@ -58,8 +41,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.header(f"Displaying Analysis for: `{st.session_state.selected_sheet}`")
-st.info("Select a different worksheet from the sidebar to analyze another dataset.")
+st.header(f"Displaying Analysis for: `{selected_sheet}`")
+st.success("Data successfully loaded. Select a page from the navigation bar to begin.")
 st.markdown("---")
 st.subheader("Dashboard Features:")
 st.markdown("""

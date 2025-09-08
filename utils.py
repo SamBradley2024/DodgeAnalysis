@@ -11,7 +11,6 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import warnings
-# UPDATED IMPORTS for Google Sheets connection
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -62,6 +61,18 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
+# --- NEW: Centralized Sidebar Function ---
+def add_sidebar():
+    """Adds a sidebar with a worksheet selector to the app."""
+    st.sidebar.title("Data Source")
+    sheet_names = get_worksheet_names()
+    
+    selected_sheet = st.sidebar.selectbox(
+        "Select a Worksheet (e.g., Season)",
+        sheet_names,
+        key='selected_sheet' 
+    )
+    return selected_sheet
 
 # --- Google Sheets Connection Functions ---
 @st.cache_data(ttl=600)
@@ -163,8 +174,8 @@ def train_advanced_models(_df):
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
-    if df_role_features.empty:
-        st.warning("Not enough data to create player roles.")
+    if df_role_features.empty or len(df_role_features) < 4: # KMeans needs at least n_clusters samples
+        st.warning("Not enough data to create player roles for the selected sheet.")
         return df, models
 
     scaler = StandardScaler()
@@ -173,7 +184,7 @@ def train_advanced_models(_df):
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
 
-    # Dynamic Role Naming Logic
+    # ... (rest of the ML function is unchanged)
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -200,7 +211,7 @@ def train_advanced_models(_df):
     role_mapping = {i: role_names[i] for i in range(len(role_names))}
     df['Player_Role'] = df['Role_Cluster'].map(role_mapping)
     models['role_model'] = (kmeans, scaler, role_mapping, role_names)
-
+    
     # Game Outcome Prediction
     outcome_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Overall_Performance', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio', 'Net_Impact']
     outcome_df = df.dropna(subset=outcome_features + ['Game_Outcome'])
@@ -221,8 +232,9 @@ def train_advanced_models(_df):
         gb_regressor = GradientBoostingRegressor(n_estimators=100, random_state=42)
         gb_regressor.fit(perf_df[perf_features], perf_df['Overall_Performance'])
         models['performance_model'] = (gb_regressor, perf_features)
-
+        
     return df, models
+
 
 
 # --- Visualization Functions ---

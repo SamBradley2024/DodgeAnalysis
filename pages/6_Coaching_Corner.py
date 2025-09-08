@@ -1,14 +1,23 @@
 import streamlit as st
-import utils
+import utils # Make sure utils is imported
 
-st.set_page_config(page_title="Coaching Corner", page_icon="🧑‍🏫", layout="wide")
+# Add the sidebar to the page and get the selected sheet
+selected_sheet = utils.add_sidebar()
 
-if 'df_enhanced' not in st.session_state:
-    st.warning("Please go to the Home page to load the data first.")
+# --- Data Loading and State Management ---
+# Check if data is loaded
+if 'df_enhanced' not in st.session_state or not st.session_state.data_loaded:
+    st.warning("Data not loaded. Please go to the Home page to load data.")
     st.stop()
 
-df = st.session_state['df_enhanced']
+# Check if the selected sheet in the sidebar is the one that's loaded
+if st.session_state.get('loaded_sheet') != selected_sheet:
+    st.warning(f"You selected the '{selected_sheet}' worksheet, but the '{st.session_state.get('loaded_sheet')}' worksheet is loaded. Please go to the Home page to load the new sheet.")
+    st.stop()
 
+# Get the dataframe from session state
+df = st.session_state['df_enhanced']
+models = st.session_state['models']
 st.header("🧑‍🏫 Coaching Corner")
 st.write("Get AI-powered, actionable advice to improve player and team performance.")
 
