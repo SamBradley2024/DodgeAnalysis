@@ -91,10 +91,20 @@ if selected_match:
             Avg_KD_Ratio=('K/D_Ratio', 'mean')
         ).sort_values('Avg_Match_Performance', ascending=False).reset_index()
 
-        st.dataframe(match_player_summary.style.format({
+        match_player_summary['Perf. vs. Avg.'] = match_player_summary['Avg_Match_Performance'] - match_player_summary['Career_Avg_Performance']
+        
+        display_cols = [
+            'Player_ID', 'Team', 'Avg_Match_Performance', 'Perf. vs. Avg.', 
+            'Total_Hits', 'Total_Throws', 'Total_Catches', 'Total_Dodges', 
+            'Total_Blocks', 'Total_Hit_Out', 'Total_Caught_Out', 'Avg_KD_Ratio'
+        ]
+        
+        st.dataframe(match_player_summary[display_cols].style.format({
             'Avg_Match_Performance': '{:.2f}',
+            'Perf. vs. Avg.': '{:+.2f}',
             'Avg_KD_Ratio': '{:.2f}'
-        }), use_container_width=True)
+        }).bar(subset=['Perf. vs. Avg.'], align='mid', color=['#d65f5f', '#5fba7d']),
+        use_container_width=True)
 
         fig = px.bar(
             match_player_summary,

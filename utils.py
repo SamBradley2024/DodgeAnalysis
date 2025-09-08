@@ -276,6 +276,34 @@ def train_win_prediction_model(game_level_df):
 
 
 # --- Visualization Functions ---
+def create_improvement_chart(df, player_id):
+    """Creates a line chart showing a player's performance over time with a trendline."""
+    player_df = df[df['Player_ID'] == player_id].copy()
+    
+    # Calculate average performance per match
+    match_performance = player_df.groupby('Match_ID')['Overall_Performance'].mean().reset_index()
+    
+    # Ensure matches are sorted for a proper time-series plot
+    match_performance = match_performance.sort_values('Match_ID')
+    
+    if len(match_performance) < 2:
+        return None # Not enough data points to show a trend
+
+    fig = px.line(
+        match_performance,
+        x='Match_ID',
+        y='Overall_Performance',
+        title=f'{player_id} - Performance Trend Across Matches',
+        markers=True,
+        labels={"Match_ID": "Match", "Overall_Performance": "Average Performance Score"}
+    )
+    # Add a linear trendline
+    fig.update_traces(mode='lines+markers')
+    fig.add_trace(
+        go.Scatter(x=match_performance['Match_ID'], y=pd.Series(px.scatter(match_performance, x='Match_ID', y='Overall_Performance', trendline="ols").data[1].y), mode='lines', name='Trendline', line=dict(dash='dash'))
+    )
+    return fig
+
 def create_stamina_chart(df, player_id):
     """Creates a chart to visualize a player's performance across games in matches."""
     player_match_data = df[df['Player_ID'] == player_id].copy()
