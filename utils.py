@@ -290,16 +290,30 @@ def create_improvement_chart(df, player_id):
     if len(match_performance) < 2:
         return None 
 
-    # Use px.scatter which can create markers, lines, and a trendline all at once.
+    # --- START OF FIX ---
+    # 1. Create a numeric column for the x-axis to allow trendline calculation.
+    match_performance['match_num'] = range(len(match_performance))
+    
+    # 2. Use the new numeric column for the 'x' axis.
     fig = px.scatter(
         match_performance,
-        x='Match_ID',
+        x='match_num', # Use numeric column for the plot
         y='Overall_Performance',
         title=f'{player_id} - Performance Trend Across Matches',
-        labels={"Match_ID": "Match", "Overall_Performance": "Average Performance Score"},
-        trendline="ols",  # Automatically add an Ordinary Least Squares trendline
+        labels={"match_num": "Match"}, # Label the axis "Match"
+        trendline="ols",
         trendline_color_override="red"
     )
+    
+    # 3. Update the x-axis tick labels to show the original string 'Match_ID's.
+    fig.update_layout(
+        xaxis = dict(
+            tickmode = 'array',
+            tickvals = match_performance['match_num'],   # Position ticks at 0, 1, 2...
+            ticktext = match_performance['Match_ID']    # Display 'Match_1', 'Match_2'...
+        )
+    )
+    # --- END OF FIX ---
     
     # Update the main trace to show lines connecting the markers
     fig.update_traces(mode='lines+markers')
