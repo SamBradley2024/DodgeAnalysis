@@ -23,7 +23,6 @@ st.info(f"Analyzing data from: **{st.session_state.source_name}**")
 tab1, tab2 = st.tabs(["Player Specialization", "Statistical Correlation"])
 
 with tab1:
-    # UPDATED: Added a subheader with a help icon for explanation
     st.subheader(
         "Player Specialization Analysis",
         help="""
@@ -34,7 +33,31 @@ with tab1:
         - **Top Specialists:** The tables highlight the top 5 players for key aggregated skills like overall defense, offense, and game impact.
         """
     )
-    utils.create_specialization_analysis(df)
+
+    # --- START OF UPDATED BLOCK ---
+    # 1. Call the refactored function to get the analysis objects (figure and DataFrames)
+    heatmap_fig, df_def, df_off, df_kd = utils.create_specialization_analysis(df)
+
+    # 2. Render the objects using Streamlit commands here on the page
+    if heatmap_fig:
+        st.plotly_chart(heatmap_fig, width='stretch')
+
+    st.subheader("Top Specialists by Key Skill")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.write("🛡️ **Top Defensive Players**")
+        st.dataframe(df_def[['Defensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Blues'))
+    
+    with col2:
+        st.write("🎯 **Top Offensive Players**")
+        st.dataframe(df_off[['Offensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Reds'))
+    
+    with col3:
+        st.write("⚡ **High-Impact Players (K/D Ratio)**")
+        st.dataframe(df_kd[['K/D_Ratio']].style.format("{:.2f}x Avg").background_gradient(cmap='Purples'))
+    # --- END OF UPDATED BLOCK ---
+
 
 with tab2:
     st.subheader("Statistical Correlations")
@@ -61,7 +84,8 @@ with tab2:
                          color='Correlation', color_continuous_scale='plasma',
                          text_auto='.2f')
             fig.update_layout(yaxis={'categoryorder': 'total ascending'})
-            st.plotly_chart(fig, use_container_width=True)
+            # UPDATED: Replaced deprecated parameter with the modern one
+            st.plotly_chart(fig, width='stretch') 
             st.info("💡 A higher correlation value means that a change in that metric is more likely to result in a change in the player's overall performance score.")
         else:
             st.warning("Could not calculate correlations. The dataset might be too small or lack variation.")

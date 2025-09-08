@@ -286,22 +286,24 @@ def create_improvement_chart(df, player_id):
     # Ensure matches are sorted for a proper time-series plot
     match_performance = match_performance.sort_values('Match_ID')
     
+    # Guard Clause: Check if there's enough data for a trendline
     if len(match_performance) < 2:
-        return None # Not enough data points to show a trend
+        return None 
 
-    fig = px.line(
+    # Use px.scatter which can create markers, lines, and a trendline all at once.
+    fig = px.scatter(
         match_performance,
         x='Match_ID',
         y='Overall_Performance',
         title=f'{player_id} - Performance Trend Across Matches',
-        markers=True,
-        labels={"Match_ID": "Match", "Overall_Performance": "Average Performance Score"}
+        labels={"Match_ID": "Match", "Overall_Performance": "Average Performance Score"},
+        trendline="ols",  # Automatically add an Ordinary Least Squares trendline
+        trendline_color_override="red"
     )
-    # Add a linear trendline
+    
+    # Update the main trace to show lines connecting the markers
     fig.update_traces(mode='lines+markers')
-    fig.add_trace(
-        go.Scatter(x=match_performance['Match_ID'], y=pd.Series(px.scatter(match_performance, x='Match_ID', y='Overall_Performance', trendline="ols").data[1].y), mode='lines', name='Trendline', line=dict(dash='dash'))
-    )
+    
     return fig
 
 def create_stamina_chart(df, player_id):
@@ -428,12 +430,11 @@ def create_league_overview(df):
     
     return fig
 
+# In utils.py
 def create_specialization_analysis(df):
-    """Creates visualizations to analyze player specialization."""
-    # UPDATED: The st.header is removed from here and moved to the page file.
-    st.write("This section identifies players who are specialists in key skills by comparing their performance against the league average.")
-    
-    # UPDATED: Added more stats to the analysis
+    """
+    Analyzes player specialization and returns a figure and top specialist DataFrames.
+    """
     spec_stats = [
         'Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 
         'Defensive_Efficiency', 'K/D_Ratio', 'Offensive_Rating', 'Defensive_Rating'
@@ -442,26 +443,26 @@ def create_specialization_analysis(df):
     player_avg_stats = df.groupby('Player_ID')[spec_stats].mean()
     league_avg = player_avg_stats.mean()
     specialization = player_avg_stats / (league_avg + 1e-6)
+    
+    # Create the heatmap figure
     top_specialized_players = specialization.std(axis=1).nlargest(20).index
     specialization_subset = specialization.loc[top_specialized_players]
-    fig = px.imshow(specialization_subset, text_auto=".2f", aspect="auto", color_continuous_scale='Viridis', labels=dict(x="Statistic", y="Player", color="Specialization Score (x League Avg)"), title="Player Specialization Heatmap (vs. League Average)")
+    fig = px.imshow(
+        specialization_subset, 
+        text_auto=".2f", 
+        aspect="auto", 
+        color_continuous_scale='Viridis',
+        labels=dict(x="Statistic", y="Player", color="Specialization Score (x League Avg)"),
+        title="Player Specialization Heatmap (vs. League Average)"
+    )
     fig.update_xaxes(side="top")
-    st.plotly_chart(fig, use_container_width=True)
     
-    st.subheader("Top Specialists by Key Skill")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.write("🛡️ **Top Defensive Playres**")
-        top_defensive = specialization.sort_values('Defensive_Rating', ascending=False).head(5)
-        st.dataframe(top_defensive[['Defensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Blues'))
-    with col2:
-        st.write("🎯 **Top Offensive Players**")
-        top_offensive = specialization.sort_values('Offensive_Rating', ascending=False).head(5)
-        st.dataframe(top_offensive[['Offensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Reds'))
-    with col3:
-        st.write("⚡ **High-Impact Players (K/D Ratio)**")
-        top_kd = specialization.sort_values('K/D_Ratio', ascending=False).head(5)
-        st.dataframe(top_kd[['K/D_Ratio']].style.format("{:.2f}x Avg").background_gradient(cmap='Purples'))
+    # Get the top specialists DataFrames
+    top_defensive = specialization.sort_values('Defensive_Rating', ascending=False).head(5)
+    top_offensive = specialization.sort_values('Offensive_Rating', ascending=False).head(5)
+    top_kd = specialization.sort_values('K/D_Ratio', ascending=False).head(5)
+    
+    return fig, top_defensive, top_offensive, top_kd
 
 def generate_player_coaching_report(df, player_id):
     player_data = df[df['Player_ID'] == player_id]
