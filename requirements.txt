@@ -3,4 +3,6 @@ pandas
 plotly
 scikit-learn
 gspread
-google-auth-oauthlib
+google-auth
+matplotlib
+seaborn
