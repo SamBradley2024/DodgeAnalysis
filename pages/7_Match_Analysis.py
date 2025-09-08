@@ -37,13 +37,14 @@ if selected_match:
         
         st.subheader(f"Match Result: {match_winner} Wins")
         
-        cols = st.columns(len(game_scores))
-        for i, (team, score) in enumerate(game_scores.items()):
-            with cols[i]:
-                st.metric(f"{team} Game Wins", score)
+        if not game_scores.empty:
+            cols = st.columns(len(game_scores))
+            for i, (team, score) in enumerate(game_scores.items()):
+                with cols[i]:
+                    st.metric(f"{team} Game Wins", score)
     else:
         st.subheader("Match Result")
-        st.warning("Match winner could not be determined. Ensure the match has two teams.")
+        st.warning("Match winner could not be determined. Ensure the match has two teams with recorded wins.")
 
     st.markdown("---")
 
@@ -62,7 +63,6 @@ if selected_match:
         for game_id in games_in_match:
             game_df = match_df[match_df['Game_ID'] == game_id]
             
-            # Find winner, handle cases with no winner recorded
             winner_series = game_df[game_df['Game_Outcome'] == 'Win']['Team']
             winner = winner_series.iloc[0] if not winner_series.empty else "Draw/Unknown"
             game_num = game_df['Game_Num_In_Match'].iloc[0]
@@ -71,20 +71,23 @@ if selected_match:
                 mvp = game_df.loc[game_df['Overall_Performance'].idxmax()]
                 st.write(f"**Game MVP:** {mvp['Player_ID']} (Performance: {mvp['Overall_Performance']:.2f})")
                 
-                player_stats = game_df[['Player_ID', 'Team', 'Overall_Performance', 'Hits', 'Catches', 'Times_Eliminated']]
+                # UPDATED: Replaced 'Times_Eliminated' with 'Hit_Out' and 'Caught_Out'
+                player_stats = game_df[['Player_ID', 'Team', 'Overall_Performance', 'Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']]
                 st.dataframe(player_stats.sort_values("Overall_Performance", ascending=False), use_container_width=True)
 
     elif view_mode == "Individual Player Performance":
         st.subheader("Match Performance Leaderboard")
         
-        # Calculate average stats for each player across all games in THIS match
+        # UPDATED: Replaced 'Total_Eliminations' with 'Total_Hit_Out' and 'Total_Caught_Out'
         match_player_summary = match_df.groupby(['Player_ID', 'Team']).agg(
             Avg_Match_Performance=('Overall_Performance', 'mean'),
             Total_Hits=('Hits', 'sum'),
+            Total_Throws=('Throws', 'sum'),
             Total_Catches=('Catches', 'sum'),
             Total_Dodges=('Dodges', 'sum'),
             Total_Blocks=('Blocks', 'sum'),
-            Total_Eliminations=('Times_Eliminated', 'sum'),
+            Total_Hit_Out=('Hit_Out', 'sum'),
+            Total_Caught_Out=('Caught_Out', 'sum'),
             Avg_KD_Ratio=('K/D_Ratio', 'mean')
         ).sort_values('Avg_Match_Performance', ascending=False).reset_index()
 
@@ -93,7 +96,6 @@ if selected_match:
             'Avg_KD_Ratio': '{:.2f}'
         }), use_container_width=True)
 
-        # Add a bar chart for visualization
         fig = px.bar(
             match_player_summary,
             x='Player_ID',
