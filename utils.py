@@ -17,7 +17,6 @@ warnings.filterwarnings('ignore')
 
 
 # --- Styling and UI Helpers ---
-
 def load_css():
     """Returns the custom CSS string."""
     return """
@@ -33,7 +32,7 @@ def load_css():
         .insight-box {
             background: #e8f4fd; padding: 1rem; border-radius: 8px;
             border-left: 4px solid #1f77b4; margin: 1rem 0;
-            color: #31333F; /* UPDATED: This sets the text color to dark grey */
+            color: #31333F;
         }
         .warning-box {
             background: #fff3cd; padding: 1rem; border-radius: 8px;
@@ -76,52 +75,79 @@ def load_from_google_sheet(worksheet_name):
             st.warning(f"Worksheet '{worksheet_name}' is empty or has no data.")
             return None
         return pd.DataFrame(data)
-    except gspread.exceptions.WorksheetNotFound:
-        st.error(f"Worksheet '{worksheet_name}' not found in the Google Sheet.")
-        return None
     except Exception as e:
         st.error(f"Error reading from Google Sheets: {e}")
         return None
 
 def enhance_dataframe(df):
-    """Takes a raw dataframe and adds all calculated metrics and features, now including match-level analysis."""
-    # Check for required columns, now including Match_ID
+    """Takes a raw dataframe and adds all calculated metrics and features."""
     required_cols = ['Match_ID', 'Player_ID', 'Team', 'Game_ID', 'Game_Outcome', 'Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
     if not all(col in df.columns for col in required_cols):
         st.error("The data is missing required columns. Please ensure it has: " + ", ".join(required_cols))
         return None
 
-    # --- Original Feature Engineering (unchanged) ---
     numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-    # ... (all other calculations like K/D_Ratio, Overall_Performance, etc. remain the same) ...
-    player_stats = df.groupby('Player_ID').agg(
-        # ... (all original aggregations remain the same) ...
-    ).round(3)
+
+    df['Times_Eliminated'] = df['Hit_Out'] + df['Caught_Out']
+    df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
+    df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
+    df['Hit_Accuracy'] = np.where(df['Throws'] > 0, df['Hits'] / df['Throws'], 0)
+    df['Defensive_Efficiency'] = np.where((df['Catches'] + df['Dodges'] + df['Hit_Out']) > 0, (df['Catches'] + df['Dodges']) / (df['Catches'] + df['Dodges'] + df['Hit_Out']), 0)
+    df['Offensive_Rating'] = (df['Hits'] * 2 + df['Throws'] * 0.5) / (df['Throws'] + 1)
+    df['Defensive_Rating'] = (df['Dodges'] + df['Catches'] * 2) / 3
+    df['Overall_Performance'] = (df['Offensive_Rating'] * 0.35 + df['Defensive_Rating'] * 0.35 + df['K/D_Ratio'] * 0.15 + df['Net_Impact'] * 0.05 + df['Hit_Accuracy'] * 0.05 + df['Defensive_Efficiency'] * 0.05)
+    df['Game_Impact'] = np.where(df['Game_Outcome'] == 'Win', df['Overall_Performance'] * 1.2, df['Overall_Performance'] * 0.8)
+
+    # --- UPDATED: Using older pandas syntax for .agg() to ensure compatibility ---
+    agg_dict = {
+        'Overall_Performance': ['mean', 'std'], 'Hit_Accuracy': 'mean',
+        'K/D_Ratio': 'mean', 'Net_Impact': 'mean', 'Throws': 'mean',
+        'Dodges': 'mean', 'Blocks': 'mean', 'Hit_Out': 'sum',
+        'Caught_Out': 'sum', 'Game_Outcome': lambda x: (x == 'Win').mean()
+    }
+    player_stats = df.groupby('Player_ID').agg(agg_dict).round(3)
+
+    # Flatten the MultiIndex columns created by the old .agg() method
+    player_stats.columns = ['_'.join(col).strip() for col in player_stats.columns.values]
+
+    # Rename the columns to what the rest of the app expects
+    player_stats = player_stats.rename(columns={
+        'Overall_Performance_mean': 'Avg_Performance',
+        'Overall_Performance_std': 'Performance_Consistency',
+        'Hit_Accuracy_mean': 'Avg_Hit_Accuracy',
+        'K/D_Ratio_mean': 'Avg_KD_Ratio',
+        'Net_Impact_mean': 'Avg_Net_Impact',
+        'Throws_mean': 'Avg_Throws',
+        'Dodges_mean': 'Avg_Dodges',
+        'Blocks_mean': 'Avg_Blocks',
+        'Hit_Out_sum': 'Total_Hit_Out',
+        'Caught_Out_sum': 'Total_Caught_Out',
+        'Game_Outcome_<lambda>': 'Win_Rate'
+    })
+    # --- END OF UPDATED BLOCK ---
+
     player_stats['Consistency_Score'] = 1 / (player_stats['Performance_Consistency'] + 0.01)
     df = df.merge(player_stats, on='Player_ID', how='left')
     
-    # --- NEW: Match-Level Feature Engineering ---
-    # Assign a sequential number to each game within its match
+    # Match-Level Feature Engineering
     df['Game_Num_In_Match'] = df.groupby('Match_ID')['Game_ID'].transform(lambda x: pd.factorize(x)[0] + 1)
 
-    # Calculate match outcomes
     game_winners = df[['Match_ID', 'Game_ID', 'Team', 'Game_Outcome']].drop_duplicates()
     game_winners = game_winners[game_winners['Game_Outcome'] == 'Win']
-    match_game_wins = game_winners.groupby(['Match_ID', 'Team']).size().unstack(fill_value=0)
-    
-    if len(match_game_wins.columns) == 2:
-        team1, team2 = match_game_wins.columns
-        match_game_wins['Match_Winner'] = np.select(
-            [match_game_wins[team1] > match_game_wins[team2], match_game_wins[team2] > match_game_wins[team1]],
-            [team1, team2],
-            default='Draw'
-        )
-        # Merge match winner info back into the main dataframe
-        df = df.merge(match_game_wins[['Match_Winner']], on='Match_ID', how='left')
+    if not game_winners.empty:
+        match_game_wins = game_winners.groupby(['Match_ID', 'Team']).size().unstack(fill_value=0)
+        
+        if len(match_game_wins.columns) >= 2:
+            teams_in_match = match_game_wins.columns.tolist()
+            # Dynamically determine winner based on which column has a higher value
+            match_game_wins['Match_Winner'] = match_game_wins.apply(
+                lambda row: row.idxmax() if row[teams_in_match[0]] != row[teams_in_match[1]] else 'Draw',
+                axis=1
+            )
+            df = df.merge(match_game_wins[['Match_Winner']], on='Match_ID', how='left')
 
-    # Calculate player stamina (performance trend within a match)
     stamina_corr = df.groupby('Player_ID').apply(
         lambda x: x['Game_Num_In_Match'].corr(x['Overall_Performance']) if x['Match_ID'].nunique() > 1 else 0
     ).rename('Stamina_Trend')
@@ -131,7 +157,7 @@ def enhance_dataframe(df):
 
 @st.cache_resource
 def train_advanced_models(_df):
-    """Trains ML models; now correctly generates Player_Role."""
+    """Trains ML models and generates player roles."""
     df = _df.copy()
     models = {}
     
@@ -139,7 +165,7 @@ def train_advanced_models(_df):
     df_role_features = df[role_features].dropna()
 
     if df_role_features.empty or len(df_role_features) < 4:
-        st.warning("Not enough data to create player roles for the selected data source.")
+        st.warning("Not enough data to create player roles.")
         df['Player_Role'] = 'N/A'
         return df, models
 
@@ -153,17 +179,10 @@ def train_advanced_models(_df):
     league_average_stats = df_role_features.mean()
     role_names = []
     
-    # UPDATED: Using your new, more descriptive names
     name_map = {
-        'Hits': 'High Hits',
-        'Throws': 'High Volume Thrower',
-        'Dodges': 'Evasive',
-        'Catches': 'Catcher',
-        'Hit_Accuracy': 'Precision Player', # Corrected typo
-        'Defensive_Efficiency': 'Efficient Defender',
-        'Offensive_Rating': 'Offensive',
-        'Defensive_Rating': 'Defensive',
-        'K/D_Ratio': 'High K/D Player'
+        'Hits': 'High Hits', 'Throws': 'High Volume Thrower', 'Dodges': 'Evasive',
+        'Catches': 'Catcher', 'Hit_Accuracy': 'Precision Player', 'Defensive_Efficiency': 'Efficient Defender',
+        'Offensive_Rating': 'Offensive', 'Defensive_Rating': 'Defensive', 'K/D_Ratio': 'High K/D Player'
     }
 
     for i in range(cluster_centers_unscaled.shape[0]):
@@ -187,9 +206,25 @@ def train_advanced_models(_df):
     
     return df, models
 
+def initialize_app(df, source_name):
+    """Initializes the app by processing data and training models."""
+    with st.spinner(f"Processing data from '{source_name}' and training models..."):
+        df_enhanced = enhance_dataframe(df.copy())
+        if df_enhanced is not None:
+            df_trained, models = train_advanced_models(df_enhanced)
+            
+            game_level_df = create_game_level_features(df_trained)
+            win_model, win_model_features = train_win_prediction_model(game_level_df)
+            if win_model:
+                models['win_predictor'] = (win_model, win_model_features)
+            
+            st.session_state.df_enhanced = df_trained
+            st.session_state.models = models
+            st.session_state.data_loaded = True
+            st.session_state.source_name = source_name
+
 def create_game_level_features(df):
     """Transforms player-level data into game-level data for win prediction."""
-    # Calculate team-level stats for each game
     team_game_stats = df.groupby(['Game_ID', 'Team']).agg(
         Avg_Performance=('Overall_Performance', 'mean'),
         Avg_KD_Ratio=('K/D_Ratio', 'mean'),
@@ -197,26 +232,20 @@ def create_game_level_features(df):
         Win=('Game_Outcome', lambda x: 1 if (x == 'Win').any() else 0)
     ).reset_index()
 
-    # Get the two teams for each game
     game_teams = team_game_stats.groupby('Game_ID')['Team'].apply(list).reset_index()
-    game_teams = game_teams[game_teams['Team'].apply(len) == 2] # Only consider 2-team games
+    game_teams = game_teams[game_teams['Team'].apply(len) == 2]
 
     game_features = []
     for _, row in game_teams.iterrows():
-        game_id = row['Game_ID']
-        team_a_name, team_b_name = row['Team'][0], row['Team'][1]
+        game_id, (team_a_name, team_b_name) = row['Game_ID'], row['Team']
         
         team_a_stats = team_game_stats[(team_game_stats['Game_ID'] == game_id) & (team_game_stats['Team'] == team_a_name)].iloc[0]
         team_b_stats = team_game_stats[(team_game_stats['Game_ID'] == game_id) & (team_game_stats['Team'] == team_b_name)].iloc[0]
         
-        # Create a feature row for the model
         feature_row = {
-            'Team_A_Avg_Perf': team_a_stats['Avg_Performance'],
-            'Team_A_Avg_KD': team_a_stats['Avg_KD_Ratio'],
-            'Team_A_Avg_Acc': team_a_stats['Avg_Hit_Accuracy'],
-            'Team_B_Avg_Perf': team_b_stats['Avg_Performance'],
-            'Team_B_Avg_KD': team_b_stats['Avg_KD_Ratio'],
-            'Team_B_Avg_Acc': team_b_stats['Avg_Hit_Accuracy'],
+            'Team_A_Avg_Perf': team_a_stats['Avg_Performance'], 'Team_A_Avg_KD': team_a_stats['Avg_KD_Ratio'],
+            'Team_A_Avg_Acc': team_a_stats['Avg_Hit_Accuracy'], 'Team_B_Avg_Perf': team_b_stats['Avg_Performance'],
+            'Team_B_Avg_KD': team_b_stats['Avg_KD_Ratio'], 'Team_B_Avg_Acc': team_b_stats['Avg_Hit_Accuracy'],
             'Team_A_Won': team_a_stats['Win']
         }
         game_features.append(feature_row)
@@ -224,45 +253,27 @@ def create_game_level_features(df):
     return pd.DataFrame(game_features)
 
 def train_win_prediction_model(game_level_df):
-    """Trains a model to predict game outcomes based on team stats."""
-    if game_level_df.shape[0] < 10: # Need at least a few games to train
+    """Trains a model to predict game outcomes."""
+    if game_level_df.shape[0] < 10:
         st.warning("Not enough game data to train a win prediction model.")
         return None, None
         
     features = [col for col in game_level_df.columns if col != 'Team_A_Won']
-    X = game_level_df[features]
-    y = game_level_df['Team_A_Won']
+    X, y = game_level_df[features], game_level_df['Team_A_Won']
+
+    if len(y.unique()) < 2:
+        st.warning("Not enough outcome variation to train a win prediction model.")
+        return None, None
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42, stratify=y)
     
     model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
     model.fit(X_train, y_train)
     
-    accuracy = model.score(X_test, y_test)
-    st.session_state.win_model_accuracy = accuracy # Store accuracy for display
+    st.session_state.win_model_accuracy = model.score(X_test, y_test)
     
     return model, features
 
-def initialize_app(df, source_name):
-    """
-    Takes a raw dataframe, enhances it, trains all models, and stores everything in session state.
-    """
-    with st.spinner(f"Processing data from '{source_name}' and training models..."):
-        df_enhanced = enhance_dataframe(df.copy())
-        if df_enhanced is not None:
-            df_trained, models = train_advanced_models(df_enhanced)
-            
-            # --- NEW: Train the win prediction model ---
-            game_level_df = create_game_level_features(df_trained)
-            win_model, win_model_features = train_win_prediction_model(game_level_df)
-            if win_model:
-                models['win_predictor'] = (win_model, win_model_features)
-            # --- END OF NEW BLOCK ---
-            
-            st.session_state.df_enhanced = df_trained
-            st.session_state.models = models
-            st.session_state.data_loaded = True
-            st.session_state.source_name = source_name
 
 # --- Visualization Functions ---
 def create_stamina_chart(df, player_id):
