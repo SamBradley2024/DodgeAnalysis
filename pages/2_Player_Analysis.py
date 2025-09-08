@@ -81,12 +81,12 @@ if selected_player:
         st.metric("Total Times Eliminated by Being Hit", f"{hit_out_total:.0f}")
         st.metric("Total Times Eliminated by a Catch", f"{caught_out_total:.0f}")
 
-        if hit_out_total > caught_out_total * 1.5:
-            st.warning("Insight: This player is more frequently eliminated by being hit directly. Coaching should focus on improving dodging ability and spatial awareness.")
-        elif caught_out_total > hit_out_total * 1.5:
-            st.warning("Insight: This player is more frequently eliminated by having their throws caught. Coaching should focus on shot selection and avoiding risky throws.")
+        if caught_out_total > (hit_out_total / 3) and caught_out_total > 2:
+            st.warning("**Insight:** This player's throws get caught relatively often. Focus on shot selection and avoiding risky throws to strong catchers.")
+        elif hit_out_total > (caught_out_total * 2) and hit_out_total > 2:
+            st.warning("**Insight:** This player is eliminated by being hit directly much more often than being caught. Focus on dodging drills")
         else:
-            st.info("Insight: This player has a balanced elimination profile.")
+            st.info("✅ **Insight:** This player has a balanced elimination profile, showing no specific defensive weakness.")
 
     st.markdown("---")
     

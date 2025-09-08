@@ -32,18 +32,24 @@ with col4:
     utils.styled_metric("Avg Performance", f"{avg_performance:.2f}")
 
 # --- Main Visual Section ---
-# UPDATED: Title with help icon is created here, and the st.info box is removed.
 st.subheader(
     "League Visual Overview",
     help="""
-    **How to Read the 'Performance vs Consistency' Chart:**
+    **How to Read the Dashboard:**
 
-    - **X-Axis (Performance):** A player's average skill level. Further to the right is better.
-    - **Y-Axis (Consistency):** A measure of how reliable a player is. Higher up is more consistent.
-    - **Top-Right: ⭐ Stars** (High skill, high reliability).
-    - **Top-Left: 🛡️ Role-Players** (Lower skill, high reliability).
-    - **Bottom-Right: 💥 Wildcards** (High skill, low reliability).
-    - **Bottom-Left: 🌱 Developing Players** (Lower skill, low reliability).
+    - **Top-Left (Bar Chart):** Ranks the top 10 players in the league by their average performance score.
+
+    - **Top-Right (Radar Chart):** Compares the average offensive and defensive skills for up to five teams, showing each team's tactical profile.
+
+    - **Bottom-Left (Pie Chart):** Shows the breakdown of different player roles across the entire league, as determined by the AI.
+
+    - **Bottom-Right (Scatter Plot):** Categorizes players based on their skill and reliability:
+        - **X-Axis (Performance):** Average skill level. Further right is better.
+        - **Y-Axis (Consistency):** Reliability. Higher up is more consistent.
+        - **Top-Right: ⭐ Stars** (High skill, high reliability).
+        - **Top-Left: 🛡️ Role-Players** (Lower skill, high reliability).
+        - **Bottom-Right: 💥 Wildcards** (High skill, low reliability).
+        - **Bottom-Left: 🌱 Developing Players** (Lower skill, low reliability).
     """
 )
 st.plotly_chart(utils.create_league_overview(df), use_container_width=True)

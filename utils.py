@@ -33,6 +33,7 @@ def load_css():
         .insight-box {
             background: #e8f4fd; padding: 1rem; border-radius: 8px;
             border-left: 4px solid #1f77b4; margin: 1rem 0;
+            color: #31333F; /* UPDATED: This sets the text color to dark grey */
         }
         .warning-box {
             background: #fff3cd; padding: 1rem; border-radius: 8px;
@@ -145,9 +146,16 @@ def train_advanced_models(_df):
     league_average_stats = df_role_features.mean()
     role_names = []
     name_map = {
-        'Hits': 'Striker', 'Throws': 'Thrower', 'Dodges': 'Evader',
-        'Catches': 'Catcher', 'Hit_Accuracy': 'Accurate', 'Defensive_Efficiency': 'Efficient',
-        'Offensive_Rating': 'Offensive', 'Defensive_Rating': 'Defensive', 'K/D_Ratio': 'Clutch'
+    'Hits': 'High Hits',
+    'Throws': 'High Volume Thrower',
+    'Dodges': 'Evasive',
+    'Catches': 'Catcher',
+    'Hit_Accuracy': 'Precisive',
+    'Defensive_Efficiency': 'Efficient Defender',
+    'Offensive_Rating': ' Offensive',
+    'Defensive_Rating': 'Defensive',
+    'K/D_Ratio': 'High K/D Player'
+}
     }
     for i in range(cluster_centers_unscaled.shape[0]):
         center_stats = pd.Series(cluster_centers_unscaled[i], index=role_features)
@@ -288,9 +296,16 @@ def create_league_overview(df):
     return fig
 
 def create_specialization_analysis(df):
-    st.header("Player Specialization Analysis")
+    """Creates visualizations to analyze player specialization."""
+    # UPDATED: The st.header is removed from here and moved to the page file.
     st.write("This section identifies players who are specialists in key skills by comparing their performance against the league average.")
-    spec_stats = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'K/D_Ratio']
+    
+    # UPDATED: Added more stats to the analysis
+    spec_stats = [
+        'Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 
+        'Defensive_Efficiency', 'K/D_Ratio', 'Offensive_Rating', 'Defensive_Rating'
+    ]
+    
     player_avg_stats = df.groupby('Player_ID')[spec_stats].mean()
     league_avg = player_avg_stats.mean()
     specialization = player_avg_stats / (league_avg + 1e-6)
@@ -299,19 +314,19 @@ def create_specialization_analysis(df):
     fig = px.imshow(specialization_subset, text_auto=".2f", aspect="auto", color_continuous_scale='Viridis', labels=dict(x="Statistic", y="Player", color="Specialization Score (x League Avg)"), title="Player Specialization Heatmap (vs. League Average)")
     fig.update_xaxes(side="top")
     st.plotly_chart(fig, use_container_width=True)
-    st.info("💡 A score of 2.0 means a player is twice as good as the average in that skill.")
+    
     st.subheader("Top Specialists by Key Skill")
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.write("🛡️ **Top Catchers**")
-        top_catchers = specialization.sort_values('Catches', ascending=False).head(5)
-        st.dataframe(top_catchers[['Catches']].style.format("{:.2f}x Avg").background_gradient(cmap='Greens'))
+        st.write("🛡️ **Top Defensive Playres**")
+        top_defensive = specialization.sort_values('Defensive_Rating', ascending=False).head(5)
+        st.dataframe(top_defensive[['Defensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Blues'))
     with col2:
-        st.write("🎯 **Top Sharpshooters (Hit Accuracy)**")
-        top_accurate = specialization.sort_values('Hit_Accuracy', ascending=False).head(5)
-        st.dataframe(top_accurate[['Hit_Accuracy']].style.format("{:.2f}x Avg").background_gradient(cmap='Reds'))
+        st.write("🎯 **Top Offensive Players**")
+        top_offensive = specialization.sort_values('Offensive_Rating', ascending=False).head(5)
+        st.dataframe(top_offensive[['Offensive_Rating']].style.format("{:.2f}x Avg").background_gradient(cmap='Reds'))
     with col3:
-        st.write("⚡ **Top 'Clutch' Players (K/D Ratio)**")
+        st.write("⚡ **High-Impact Players (K/D Ratio)**")
         top_kd = specialization.sort_values('K/D_Ratio', ascending=False).head(5)
         st.dataframe(top_kd[['K/D_Ratio']].style.format("{:.2f}x Avg").background_gradient(cmap='Purples'))
 
