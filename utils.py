@@ -9,7 +9,6 @@ from sklearn.cluster import KMeans
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import numpy as np
-import os
 import warnings
 import gspread
 from google.oauth2.service_account import Credentials
@@ -61,7 +60,8 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- NEW: Centralized Sidebar Function ---
+# --- Centralized Sidebar and Data Initialization ---
+
 def add_sidebar():
     """Adds a sidebar with a worksheet selector to the app."""
     st.sidebar.title("Data Source")
@@ -74,8 +74,27 @@ def add_sidebar():
     )
     return selected_sheet
 
+def initialize_app(worksheet_name):
+    """
+    Loads data from a specific worksheet and trains models,
+    storing them in the session state. This is the master function
+    to call whenever data needs to be loaded or reloaded.
+    """
+    with st.spinner(f"Loading data from '{worksheet_name}' and training models..."):
+        df = load_and_enhance_data(worksheet_name)
+        if df is not None:
+            # Clear previous model cache to ensure fresh models are trained
+            if 'models' in st.session_state:
+                del st.session_state['models']
+                
+            df_enhanced, models = train_advanced_models(df.copy())
+            st.session_state['df_enhanced'] = df_enhanced
+            st.session_state['models'] = models
+            st.session_state['data_loaded'] = True
+            st.session_state['loaded_sheet'] = worksheet_name # Track which sheet is loaded
+
 # --- Google Sheets Connection Functions ---
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300) # Cache for 5 minutes
 def get_worksheet_names():
     """Gets a list of all worksheet (tab) names from the Google Sheet."""
     try:
@@ -91,9 +110,9 @@ def get_worksheet_names():
         return [sheet.title for sheet in spreadsheet.worksheets()]
     except Exception as e:
         st.error(f"Could not retrieve worksheet names: {e}")
-        return ["Sheet1"] # Fallback to default
+        return ["Sheet1"]
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=300) # Cache for 5 minutes
 def load_and_enhance_data(worksheet_name):
     """Loads data from a specific Google Sheet worksheet and performs feature engineering."""
     try:
@@ -105,9 +124,7 @@ def load_and_enhance_data(worksheet_name):
             st.secrets["gcp_service_account"], scopes=scopes
         )
         client = gspread.authorize(creds)
-        
         sheet = client.open("Dodgeball App Data").worksheet(worksheet_name)
-        
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
 
@@ -174,7 +191,7 @@ def train_advanced_models(_df):
     role_features = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'Offensive_Rating', 'Defensive_Rating', 'K/D_Ratio']
     df_role_features = df[role_features].dropna()
 
-    if df_role_features.empty or len(df_role_features) < 4: # KMeans needs at least n_clusters samples
+    if df_role_features.empty or len(df_role_features) < 4:
         st.warning("Not enough data to create player roles for the selected sheet.")
         return df, models
 
@@ -184,7 +201,6 @@ def train_advanced_models(_df):
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
 
-    # ... (rest of the ML function is unchanged)
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -236,10 +252,8 @@ def train_advanced_models(_df):
     return df, models
 
 
-
 # --- Visualization Functions ---
 def create_player_dashboard(df, player_id):
-    """Create comprehensive player dashboard with multiple visualizations."""
     player_data = df[df['Player_ID'] == player_id]
     if player_data.empty:
         st.error(f"No data found for player {player_id}")
@@ -256,42 +270,31 @@ def create_player_dashboard(df, player_id):
     fig.add_trace(go.Scatterpolar(
         r=avg_radar_stats.values,
         theta=radar_stats,
-        fill='toself',
-        name='Avg Skills',
-        line_color='#FF6B6B'
+        fill='toself', name='Avg Skills', line_color='#FF6B6B'
     ), row=1, col=1)
 
     fig.add_trace(go.Scatter(
-        x=player_data['Game_ID'],
-        y=player_data['Overall_Performance'],
-        mode='lines+markers',
-        name='Performance Trend',
-        line=dict(color='#4ECDC4', width=3)
+        x=player_data['Game_ID'], y=player_data['Overall_Performance'],
+        mode='lines+markers', name='Performance Trend', line=dict(color='#4ECDC4', width=3)
     ), row=1, col=2)
 
     bar_stats_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks']
     avg_bar_stats = player_data[bar_stats_cols].mean()
     fig.add_trace(go.Bar(
-        x=bar_stats_cols,
-        y=avg_bar_stats.values,
-        name='Average Stats',
-        marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
+        x=bar_stats_cols, y=avg_bar_stats.values,
+        name='Average Stats', marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
     ), row=2, col=1)
 
     outcomes = player_data['Game_Outcome'].value_counts()
     fig.add_trace(go.Pie(
-        labels=outcomes.index,
-        values=outcomes.values,
-        name="Win Rate",
-        marker_colors=['#4ECDC4', '#FF6B6B']
+        labels=outcomes.index, values=outcomes.values,
+        name="Win Rate", marker_colors=['#4ECDC4', '#FF6B6B']
     ), row=2, col=2)
     fig.update_layout(height=800, showlegend=False, title_text=f"Comprehensive Dashboard: {player_id}")
-
     return fig
 
 
 def create_team_analytics(df, team_id):
-    """Create detailed team analytics visualization."""
     team_data = df[df['Team'] == team_id]
     fig = make_subplots(
         rows=2, cols=2,
@@ -312,7 +315,6 @@ def create_team_analytics(df, team_id):
 
 
 def create_league_overview(df):
-    """Create comprehensive league overview."""
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=('Top Performers by Avg Score', 'Team Skill Comparison', 'League Role Distribution', 'Performance vs Consistency'),
@@ -329,7 +331,7 @@ def create_league_overview(df):
         fig.add_trace(go.Scatterpolar(r=team_stats.values, theta=stats_radar, fill='toself', name=team, line_color=colors[i]), row=1, col=2)
     
     if 'Player_Role' in df.columns:
-        role_counts = df['Player_Role'].value_counts()
+        role_counts = df['Player_Role'].dropna().value_counts()
         if not role_counts.empty:
             fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles"), row=2, col=1)
     
@@ -340,7 +342,6 @@ def create_league_overview(df):
 
 
 def create_specialization_analysis(df):
-    """Creates visualizations to analyze player specialization."""
     st.header("Player Specialization Analysis")
     st.write("This section identifies players who are specialists in key skills by comparing their performance against the league average.")
     spec_stats = ['Hits', 'Throws', 'Dodges', 'Catches', 'Hit_Accuracy', 'Defensive_Efficiency', 'K/D_Ratio']
@@ -352,7 +353,7 @@ def create_specialization_analysis(df):
     fig = px.imshow(specialization_subset, text_auto=".2f", aspect="auto", color_continuous_scale='Viridis', labels=dict(x="Statistic", y="Player", color="Specialization Score (x League Avg)"), title="Player Specialization Heatmap (vs. League Average)")
     fig.update_xaxes(side="top")
     st.plotly_chart(fig, use_container_width=True)
-    st.info("💡 This heatmap shows how each player's stats compare to the league average. A score of 2.0 means the player is twice as good as the average player in that specific skill.")
+    st.info("💡 A score of 2.0 means a player is twice as good as the average in that skill.")
     st.subheader("Top Specialists by Key Skill")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -370,7 +371,6 @@ def create_specialization_analysis(df):
 
 
 def generate_player_coaching_report(df, player_id):
-    """Generates a coaching report and a comparison chart for a single player."""
     player_data = df[df['Player_ID'] == player_id]
     if player_data.empty:
         return ["No data for this player."], None
@@ -397,22 +397,22 @@ def generate_player_coaching_report(df, player_id):
 
     report = [f"### Coaching Focus for {player_id} ({player_role})"]
     advice_map = {
-        'Hit_Accuracy': "🎯 **Suggestion**: Focus on throwing drills. Practice aiming for smaller targets to improve precision under pressure.",
-        'Defensive_Efficiency': "🙌 **Suggestion**: Improve decision-making when targeted. Practice drills that force a quick choice between a safe dodge and a high-reward catch.",
-        'Catches': "🛡️ **Suggestion**: Improve positioning and anticipation. During games, try to predict where the opponent will throw.",
-        'Dodges': "🏃 **Suggestion**: Enhance agility and footwork. Ladder drills and cone drills can improve quickness.",
-        'Hits': "💥 **Suggestion**: Be more aggressive offensively. Look for opportunities to make impactful throws.",
-        'K/D_Ratio': "⚡ **Suggestion**: Focus on survivability. While your offense is strong, staying in the game longer will increase your impact. Practice dodging and making smarter throws."
+        'Hit_Accuracy': "🎯 **Suggestion**: Focus on throwing drills.",
+        'Defensive_Efficiency': "🙌 **Suggestion**: Improve decision-making when targeted.",
+        'Catches': "🛡️ **Suggestion**: Improve positioning and anticipation.",
+        'Dodges': "🏃 **Suggestion**: Enhance agility and footwork.",
+        'Hits': "💥 **Suggestion**: Be more aggressive offensively.",
+        'K/D_Ratio': "⚡ **Suggestion**: Focus on survivability."
     }
     if not role_weaknesses and not overall_weaknesses:
-        report.append("✅ **Well-Rounded Performer**: This player is performing at or above average in all key areas. Great work!")
+        report.append("✅ **Well-Rounded Performer**: This player is performing at or above average.")
     if role_weaknesses:
         stat = min(role_weaknesses, key=role_weaknesses.get)
-        report.append(f"**Role-Specific Weakness**: **{stat}**. Compared to other players in the '{player_role}' role, this is the biggest area for improvement.")
+        report.append(f"**Role-Specific Weakness**: **{stat}**.")
         report.append(advice_map.get(stat))
     if overall_weaknesses:
         stat = min(overall_weaknesses, key=overall_weaknesses.get)
-        report.append(f"**Overall Weakness**: **{stat}**. Compared to the entire league, this is a key area to focus on for fundamental improvement.")
+        report.append(f"**Overall Weakness**: **{stat}**.")
         if not role_weaknesses or stat != min(role_weaknesses, key=role_weaknesses.get):
              report.append(advice_map.get(stat))
     
@@ -427,7 +427,6 @@ def generate_player_coaching_report(df, player_id):
 
 
 def generate_team_coaching_report(df, team_id):
-    """Generates a coaching report for a team."""
     team_data = df[df['Team'] == team_id]
     if team_data.empty:
         return ["No data for this team."]
@@ -438,24 +437,23 @@ def generate_team_coaching_report(df, team_id):
     biggest_weakness = min(weaknesses, key=weaknesses.get)
     report = [f"### Coaching Focus for {team_id}", f"**Biggest Team Weakness**: The team's **{biggest_weakness}** is the furthest below the league average."]
     advice_map = {
-        'Hit_Accuracy': "🎯 **Team Focus**: Dedicate a session to throwing accuracy. Set up target practice zones.",
-        'Defensive_Efficiency': "🙌 **Team Focus**: Run drills that simulate 2-on-1 situations to force smart defensive decisions.",
-        'Catches': "🛡️ **Team Focus**: Emphasize the value of catching to regain players and shift momentum.",
-        'Dodges': "🏃 **Team Focus**: A full-team agility session with ladders and reaction games could be beneficial.",
-        'Overall_Performance': "📈 **Team Focus**: Go back to basics. Focus on fundamental drills covering all areas.",
-        'K/D_Ratio': "⚡ **Team Focus**: The team needs to improve its elimination efficiency. Run game simulations focusing on protecting high-value players and targeting opponent weaknesses."
+        'Hit_Accuracy': "🎯 **Team Focus**: Dedicate a session to throwing accuracy.",
+        'Defensive_Efficiency': "🙌 **Team Focus**: Run drills that simulate 2-on-1 situations.",
+        'Catches': "🛡️ **Team Focus**: Emphasize the value of catching.",
+        'Dodges': "🏃 **Team Focus**: A full-team agility session could be beneficial.",
+        'Overall_Performance': "📈 **Team Focus**: Go back to basics.",
+        'K/D_Ratio': "⚡ **Team Focus**: The team needs to improve its elimination efficiency."
     }
     report.append(advice_map.get(biggest_weakness, "Focus on improving this area through targeted drills."))
     
     if 'Player_Role' in team_data.columns and not team_data['Player_Role'].isnull().all():
         has_catcher = any('Catcher' in str(role) for role in team_data['Player_Role'].unique())
         if not has_catcher:
-            report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player. Consider training a player for this role to improve defensive stability.")
+            report.append("\n**Strategic Gap**: The team lacks a dedicated 'Catcher' type player.")
     return report
 
 
 def generate_insights(df):
-    """Generate AI-powered insights from the data."""
     insights = []
     top_performer = df.groupby('Player_ID')['Overall_Performance'].mean().idxmax()
     top_score = df.groupby('Player_ID')['Overall_Performance'].mean().max()
