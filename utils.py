@@ -11,7 +11,6 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 import os
 import warnings
-# UPDATED IMPORTS for manual gspread connection
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -62,39 +61,49 @@ def styled_metric(label, value, help_text=""):
     st.metric(label, value, help=help_text)
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-# --- Data Loading and Feature Engineering ---
-@st.cache_data(ttl=600) # Cache for 10 minutes
-def load_and_enhance_data():
-    """Enhanced data loading from Google Sheets with feature engineering."""
-    
-    # --- UPDATED: Manual authentication with gspread ---
+# --- NEW: Function to get all worksheet names ---
+@st.cache_data(ttl=600)
+def get_worksheet_names():
+    """Gets a list of all worksheet (tab) names from the Google Sheet."""
     try:
-        # Define the scope of access
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        # Get credentials from Streamlit secrets
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], scopes=scopes
         )
         client = gspread.authorize(creds)
+        spreadsheet = client.open("Dodgeball App Data")
+        return [sheet.title for sheet in spreadsheet.worksheets()]
+    except Exception as e:
+        st.error(f"Could not retrieve worksheet names: {e}")
+        return ["Sheet1"] # Fallback to default
 
-        # Open the Google Sheet by its title
-        # IMPORTANT: Make sure your Google Sheet is named "Dodgeball App Data"
-        sheet = client.open("Dodgeball App Data").worksheet("Sheet1")
+# --- Data Loading and Feature Engineering ---
+# UPDATED: The function now accepts a worksheet_name argument
+@st.cache_data(ttl=600)
+def load_and_enhance_data(worksheet_name):
+    """Loads data from a specific Google Sheet worksheet and performs feature engineering."""
+    try:
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=scopes
+        )
+        client = gspread.authorize(creds)
         
-        # Get all data and convert to a DataFrame
+        # UPDATED: Open the specified worksheet
+        sheet = client.open("Dodgeball App Data").worksheet(worksheet_name)
+        
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
 
     except Exception as e:
-        st.error(f"An error occurred while connecting to Google Sheets: {e}")
-        st.info("Please ensure your `secrets.toml` is correctly configured and the sheet is shared with the client email.")
+        st.error(f"Error reading from worksheet '{worksheet_name}': {e}")
         return None
 
-    # --- Feature engineering (UNCHANGED) ---
+    # --- Feature engineering logic (unchanged) ---
+    numeric_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'Hit_Out', 'Caught_Out']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
     df['Times_Eliminated'] = df['Hit_Out'] + df['Caught_Out']
     df['K/D_Ratio'] = df['Hits'] / df['Times_Eliminated'].replace(0, 1)
     df['Net_Impact'] = (df['Hits'] + df['Catches']) - df['Times_Eliminated']
