@@ -123,6 +123,7 @@ def enhance_dataframe(df):
     return df
 
 @st.cache_resource
+@st.cache_resource
 def train_advanced_models(_df):
     """Trains ML models; now correctly generates Player_Role."""
     df = _df.copy()
@@ -140,22 +141,23 @@ def train_advanced_models(_df):
     scaled_features = scaler.fit_transform(df_role_features)
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     
+    # Assign cluster labels back to the original dataframe at the correct indices
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
     
+    # This block takes the numeric clusters (0, 1, 2, 3) and gives them meaningful names.
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
     name_map = {
-    'Hits': 'High Hits',
-    'Throws': 'High Volume Thrower',
-    'Dodges': 'Evasive',
-    'Catches': 'Catcher',
-    'Hit_Accuracy': 'Precisive',
-    'Defensive_Efficiency': 'Efficient Defender',
-    'Offensive_Rating': ' Offensive',
-    'Defensive_Rating': 'Defensive',
-    'K/D_Ratio': 'High K/D Player'
-}
+        'Hits': 'High Hits',
+        'Throws': 'High Volume Thrower',
+        'Dodges': 'Evasive',
+        'Catches': 'Catcher',
+        'Hit_Accuracy': 'Precisive',
+        'Defensive_Efficiency': 'Efficient Defender',
+        'Offensive_Rating': ' Offensive',
+        'Defensive_Rating': 'Defensive',
+        'K/D_Ratio': 'High K/D Player'
     }
     for i in range(cluster_centers_unscaled.shape[0]):
         center_stats = pd.Series(cluster_centers_unscaled[i], index=role_features)
