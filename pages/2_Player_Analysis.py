@@ -23,6 +23,7 @@ st.info(f"Analyzing data from: **{st.session_state.source_name}**")
 st.markdown("---")
 
 # --- Player Selection ---
+# Use a placeholder if the player list is empty to prevent errors
 player_list = sorted(df['Player_ID'].unique())
 if not player_list:
     st.warning("No players found in the selected data source.")
@@ -56,13 +57,38 @@ if selected_player:
     
     st.markdown("---")
 
-    # --- Improvement Trend Section ---
-    st.subheader("Performance Over Time (Improvement Trend)")
-    improvement_fig = utils.create_improvement_chart(df, selected_player)
-    if improvement_fig:
-        st.plotly_chart(improvement_fig, width='stretch')
-    else:
-        st.info("Not enough data (requires participation in at least 2 matches) to show an improvement trend.")
+    # --- Metric Trend Over Time ---
+    st.subheader("Metric Trend Over Time")
+
+    # Define the list of stats the user can choose from
+    stats_options = [
+        'Overall_Performance',
+        'Hits',
+        'Catches',
+        'Dodges',
+        'K/D_Ratio',
+        'Net_Impact',
+        'Hit_Accuracy',
+        'Defensive_Efficiency',
+        'Offensive_Rating',
+        'Defensive_Rating'
+    ]
+
+    # Create the dropdown menu
+    selected_stat = st.selectbox(
+        "Select a metric to track over time:",
+        stats_options,
+        help="Choose any statistic to see how it has trended across all matches played."
+    )
+
+    # Pass the user's selection to the chart function
+    if selected_stat:
+        improvement_fig = utils.create_improvement_chart(df, selected_player, metric_to_plot=selected_stat)
+        
+        if improvement_fig:
+            st.plotly_chart(improvement_fig, width='stretch')
+        else:
+            st.info("Not enough data (requires participation in at least 2 matches) to show a trend for this player.")
 
     st.markdown("---")
     
@@ -117,7 +143,7 @@ if selected_player:
                 hole=.3, marker_colors=['#FF6B6B', '#FECA57']
             )])
             fig_pie.update_layout(title_text="Breakdown of Eliminations", showlegend=False)
-            st.plotly_chart(fig_pie, width='stretch')
+            st.plotly_chart(fig_pie, use_container_width=True)
     
     with col2:
         st.write(f"Analyzing how **{selected_player}** gets eliminated provides insight into their defensive vulnerabilities.")
@@ -146,8 +172,8 @@ if selected_player:
             with col1:
                 fig1 = utils.create_player_dashboard(df, selected_player)
                 if fig1:
-                    st.plotly_chart(fig1, width='stretch', key="compare_chart_1")
+                    st.plotly_chart(fig1, use_container_width=True, key="compare_chart_1")
             with col2:
                 fig2 = utils.create_player_dashboard(df, comparison_player)
                 if fig2:
-                    st.plotly_chart(fig2, width='stretch', key="compare_chart_2")
+                    st.plotly_chart(fig2, use_container_width=True, key="compare_chart_2")

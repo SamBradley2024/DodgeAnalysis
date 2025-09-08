@@ -276,12 +276,14 @@ def train_win_prediction_model(game_level_df):
 
 
 # --- Visualization Functions ---
-def create_improvement_chart(df, player_id):
+# In utils.py
+
+def create_improvement_chart(df, player_id, metric_to_plot='Overall_Performance'): # <-- MODIFIED: Added new argument
     """Creates a line chart showing a player's performance over time with a trendline."""
     player_df = df[df['Player_ID'] == player_id].copy()
     
-    # Calculate average performance per match
-    match_performance = player_df.groupby('Match_ID')['Overall_Performance'].mean().reset_index()
+    # Calculate average of the chosen metric per match
+    match_performance = player_df.groupby('Match_ID')[metric_to_plot].mean().reset_index() # <-- MODIFIED: Uses the new argument
     
     # Ensure matches are sorted for a proper time-series plot
     match_performance = match_performance.sort_values('Match_ID')
@@ -290,30 +292,31 @@ def create_improvement_chart(df, player_id):
     if len(match_performance) < 2:
         return None 
 
-    # --- START OF FIX ---
-    # 1. Create a numeric column for the x-axis to allow trendline calculation.
+    # Create a numeric column for the x-axis to allow trendline calculation.
     match_performance['match_num'] = range(len(match_performance))
     
-    # 2. Use the new numeric column for the 'x' axis.
+    # Create a nicely formatted name for titles and labels
+    metric_name_formatted = metric_to_plot.replace('_', ' ').title()
+    
+    # Use the new numeric column for the 'x' axis and the chosen metric for 'y'.
     fig = px.scatter(
         match_performance,
-        x='match_num', # Use numeric column for the plot
-        y='Overall_Performance',
-        title=f'{player_id} - Performance Trend Across Matches',
-        labels={"match_num": "Match"}, # Label the axis "Match"
+        x='match_num',
+        y=metric_to_plot, # <-- MODIFIED: Uses the new argument
+        title=f'{player_id} - {metric_name_formatted} Trend Across Matches', # <-- MODIFIED: Dynamic title
+        labels={"match_num": "Match", metric_to_plot: f"Average {metric_name_formatted}"}, # <-- MODIFIED: Dynamic labels
         trendline="ols",
         trendline_color_override="red"
     )
     
-    # 3. Update the x-axis tick labels to show the original string 'Match_ID's.
+    # Update the x-axis tick labels to show the original string 'Match_ID's.
     fig.update_layout(
         xaxis = dict(
             tickmode = 'array',
-            tickvals = match_performance['match_num'],   # Position ticks at 0, 1, 2...
-            ticktext = match_performance['Match_ID']    # Display 'Match_1', 'Match_2'...
+            tickvals = match_performance['match_num'],
+            ticktext = match_performance['Match_ID']
         )
     )
-    # --- END OF FIX ---
     
     # Update the main trace to show lines connecting the markers
     fig.update_traces(mode='lines+markers')
