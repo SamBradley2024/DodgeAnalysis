@@ -139,11 +139,8 @@ def train_advanced_models(_df):
     scaled_features = scaler.fit_transform(df_role_features)
     kmeans = KMeans(n_clusters=4, random_state=42, n_init='auto')
     
-    # Assign cluster labels back to the original dataframe at the correct indices
     df.loc[df_role_features.index, 'Role_Cluster'] = kmeans.fit_predict(scaled_features)
     
-    # --- THIS ENTIRE BLOCK WAS MISSING OR INCOMPLETE BEFORE ---
-    # It takes the numeric clusters (0, 1, 2, 3) and gives them meaningful names.
     cluster_centers_unscaled = scaler.inverse_transform(kmeans.cluster_centers_)
     league_average_stats = df_role_features.mean()
     role_names = []
@@ -168,7 +165,6 @@ def train_advanced_models(_df):
     
     role_mapping = {float(i): role_names[i] for i in range(len(role_names))}
     df['Player_Role'] = df['Role_Cluster'].map(role_mapping)
-    # --- END OF FIXED BLOCK ---
     
     models['role_model'] = (kmeans, scaler, role_mapping, role_names)
     
@@ -187,8 +183,67 @@ def initialize_app(df, source_name):
             st.session_state.data_loaded = True
             st.session_state.source_name = source_name
 
-
 # --- Visualization Functions ---
+def create_player_dashboard(df, player_id):
+    """Create comprehensive player dashboard with multiple visualizations."""
+    player_data = df[df['Player_ID'] == player_id]
+    if player_data.empty:
+        st.error(f"No data found for player {player_id}")
+        return None
+
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Performance Radar', 'Game-by-Game Performance', 'Skill Distribution', 'Win Rate Analysis'),
+        specs=[[{"type": "polar"}, {"type": "scatter"}], [{"type": "bar"}, {"type": "pie"}]]
+    )
+    
+    radar_stats = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks', 'K/D_Ratio']
+    avg_radar_stats = player_data[radar_stats].mean()
+    fig.add_trace(go.Scatterpolar(
+        r=avg_radar_stats.values, theta=radar_stats,
+        fill='toself', name='Avg Skills', line_color='#FF6B6B'
+    ), row=1, col=1)
+
+    fig.add_trace(go.Scatter(
+        x=player_data['Game_ID'], y=player_data['Overall_Performance'],
+        mode='lines+markers', name='Performance Trend', line=dict(color='#4ECDC4', width=3)
+    ), row=1, col=2)
+
+    bar_stats_cols = ['Hits', 'Throws', 'Catches', 'Dodges', 'Blocks']
+    avg_bar_stats = player_data[bar_stats_cols].mean()
+    fig.add_trace(go.Bar(
+        x=bar_stats_cols, y=avg_bar_stats.values,
+        name='Average Stats', marker_color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57']
+    ), row=2, col=1)
+
+    outcomes = player_data['Game_Outcome'].value_counts()
+    fig.add_trace(go.Pie(
+        labels=outcomes.index, values=outcomes.values,
+        name="Win Rate", marker_colors=['#4ECDC4', '#FF6B6B']
+    ), row=2, col=2)
+    fig.update_layout(height=800, showlegend=False, title_text=f"Comprehensive Dashboard: {player_id}")
+
+    return fig
+
+def create_team_analytics(df, team_id):
+    """Create detailed team analytics visualization."""
+    team_data = df[df['Team'] == team_id]
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=('Team Performance Distribution', 'Player Roles', 'Game Outcomes', 'Offensive vs. Defensive Rating'),
+        specs=[[{"type": "histogram"}, {"type": "bar"}], [{"type": "pie"}, {"type": "scatter"}]]
+    )
+    fig.add_trace(go.Histogram(x=team_data['Overall_Performance'], nbinsx=15, name='Performance Distribution', marker_color='#4ECDC4'), row=1, col=1)
+    if 'Player_Role' in team_data.columns:
+        role_counts = team_data['Player_Role'].dropna().value_counts()
+        if not role_counts.empty:
+            fig.add_trace(go.Bar(x=role_counts.index, y=role_counts.values, name='Player Roles', marker_color='#FF6B6B'), row=1, col=2)
+    outcomes = team_data['Game_Outcome'].value_counts()
+    fig.add_trace(go.Pie(labels=outcomes.index, values=outcomes.values, name="Outcomes"), row=2, col=1)
+    fig.add_trace(go.Scatter(x=team_data['Offensive_Rating'], y=team_data['Defensive_Rating'], mode='markers', text=team_data['Player_ID'], name='Off vs Def Rating', marker=dict(size=10, color=team_data['Overall_Performance'], colorscale='Viridis', showscale=True)), row=2, col=2)
+    fig.update_layout(height=800, title_text=f"Team Analytics: {team_id}", showlegend=False)
+    return fig
+
 def create_league_overview(df):
     """Create comprehensive league overview."""
     fig = make_subplots(
@@ -197,11 +252,9 @@ def create_league_overview(df):
         specs=[[{"type": "bar"}, {"type": "polar"}], [{"type": "pie"}, {"type": "scatter"}]]
     )
     
-    # Top Performers Bar Chart
     top_players = df.groupby('Player_ID')['Overall_Performance'].mean().nlargest(10)
     fig.add_trace(go.Bar(x=top_players.index, y=top_players.values, name='Top Performers', marker_color='#FF6B6B', showlegend=False), row=1, col=1)
     
-    # Team Skill Radar Chart
     teams = df['Team'].unique()[:5]
     colors = px.colors.qualitative.Plotly
     stats_radar = ['Hits', 'Throws', 'Blocks', 'Dodges', 'Catches']
@@ -209,32 +262,23 @@ def create_league_overview(df):
         team_stats = df[df['Team'] == team][stats_radar].mean()
         fig.add_trace(go.Scatterpolar(r=team_stats.values, theta=stats_radar, fill='toself', name=team, line_color=colors[i]), row=1, col=2)
     
-    # League Role Pie Chart
     if 'Player_Role' in df.columns:
         role_counts = df['Player_Role'].dropna().value_counts()
         if not role_counts.empty:
             fig.add_trace(go.Pie(labels=role_counts.index, values=role_counts.values, name="Roles", showlegend=False), row=2, col=1)
     
-    # Performance vs Consistency Scatter Plot
     player_summary = df.groupby('Player_ID').agg(Overall_Performance=('Overall_Performance', 'mean'), Win_Rate=('Win_Rate', 'first'), Consistency_Score=('Consistency_Score', 'first')).reset_index().dropna()
     fig.add_trace(go.Scatter(
-        x=player_summary['Overall_Performance'], 
-        y=player_summary['Consistency_Score'], 
+        x=player_summary['Overall_Performance'], y=player_summary['Consistency_Score'], 
         mode='markers', text=player_summary['Player_ID'], 
-        marker=dict(color='#4ECDC4', size=10), 
-        name='Performance vs Consistency',
+        marker=dict(color='#4ECDC4', size=10), name='Performance vs Consistency',
         showlegend=False
     ), row=2, col=2)
     
-    # UPDATED: The main 'title_text' is removed from here
     fig.update_layout(
         height=800, 
         legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
         ),
         polar=dict(radialaxis=dict(visible=True, range=[0, df[stats_radar].max().max()]))
     )
