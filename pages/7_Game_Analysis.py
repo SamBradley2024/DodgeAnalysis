@@ -18,7 +18,9 @@ models = st.session_state.models
 
 # --- Page Content ---
 st.header("🎲 Single Game Analysis")
-st.write(f"Analyzing games from worksheet: **{st.session_state.loaded_sheet}**.")
+st.info(f"Analyzing data from: **{st.session_state.source_name}**")
+st.markdown("---")
+
 
 game_list = sorted(df['Game_ID'].unique())
 if not game_list:

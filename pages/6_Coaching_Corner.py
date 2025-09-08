@@ -16,7 +16,9 @@ models = st.session_state.models
 
 # --- Page Content ---
 st.header("🧑‍🏫 Coaching Corner")
-st.write(f"Get AI-powered, actionable advice based on data from **{st.session_state.loaded_sheet}**.")
+st.info(f"Analyzing data from: **{st.session_state.source_name}**")
+st.markdown("---")
+
 
 coach_mode = st.radio("Select Coaching Mode", ["Player Coaching", "Team Coaching"], horizontal=True)
 

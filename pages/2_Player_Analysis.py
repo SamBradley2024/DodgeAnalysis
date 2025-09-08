@@ -17,7 +17,6 @@ models = st.session_state.models
 
 # --- Page Content ---
 st.header("Individual Player Analysis")
-# CORRECTED LINE: Using 'source_name' instead of 'loaded_sheet'
 st.info(f"Analyzing data from: **{st.session_state.source_name}**")
 st.markdown("---")
 

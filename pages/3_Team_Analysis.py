@@ -16,7 +16,10 @@ models = st.session_state.models
 
 # --- Page Content ---
 st.header("Team Analysis")
-st.write(f"Displaying data from worksheet: **{st.session_state.loaded_sheet}**")
+st.info(f"Analyzing data from: **{st.session_state.source_name}**")
+st.markdown("---")
+
+
 
 team_list = sorted(df['Team'].unique())
 if not team_list:
